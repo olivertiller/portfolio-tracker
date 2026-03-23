@@ -1,0 +1,26 @@
+name: Update movers gist
+
+on:
+  schedule:
+    # Run at 22:00 UTC every weekday (after US market close)
+    - cron: "0 22 * * 1-5"
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install yfinance
+
+      - name: Fetch movers and update gist
+        env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: "24236a25d105c46c64f122e4d60e12d6"
+        run: python scripts/update_gist.py
