@@ -1,7 +1,7 @@
 # Daily Portfolio News Summary
 
 ## Step 1: Get price data
-Fetch my portfolio data from: https://YOUR-RAILWAY-URL.up.railway.app/movers?threshold=2
+Fetch my portfolio data from: web-production-96969.up.railway.app/movers?threshold=2
 
 ## Step 2: Analyze movers
 For each stock in the "movers" array (moved ±2% or more), search for relevant news explaining the move. Use credible sources:
