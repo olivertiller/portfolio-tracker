@@ -2,8 +2,9 @@ name: Daily portfolio report
 
 on:
   schedule:
-    # Run at 22:00 UTC every weekday (after US market close)
-    - cron: "0 22 * * 1-5"
+    # 22:15 Oslo time (winter CET = UTC+1, summer CEST = UTC+2)
+    - cron: "15 21 * * 1-5"  # Winter: 21:15 UTC = 22:15 CET
+    - cron: "15 20 * * 1-5"  # Summer: 20:15 UTC = 22:15 CEST
   workflow_dispatch: # Allow manual trigger
 
 jobs:
