@@ -79,12 +79,13 @@ def generate_report(movers_data: dict) -> str:
 
 def send_ntfy(report: str, topic: str):
     requests.post(
-        f"https://ntfy.sh/{topic}",
-        data=report.encode("utf-8"),
-        headers={
-            "Title": "Daily Portfolio Report",
-            "Tags": "chart_with_upwards_trend",
-            "Markdown": "yes",
+        "https://ntfy.sh/",
+        json={
+            "topic": topic,
+            "title": "Daily Portfolio Report",
+            "tags": ["chart_with_upwards_trend"],
+            "markdown": True,
+            "message": report,
         },
     )
 

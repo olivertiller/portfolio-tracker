@@ -11,6 +11,15 @@ jobs:
   report:
     runs-on: ubuntu-latest
     steps:
+      - name: Check Oslo time is 22:xx (skip wrong DST trigger)
+        run: |
+          OSLO_HOUR=$(TZ='Europe/Oslo' date +%H)
+          echo "Current hour in Oslo: $OSLO_HOUR"
+          if [ "$OSLO_HOUR" != "22" ]; then
+            echo "Not 22:xx in Oslo — wrong DST trigger, skipping."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
