@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check Oslo time is 22:xx (skip wrong DST trigger)
+        if: github.event_name == 'schedule'
         run: |
           OSLO_HOUR=$(TZ='Europe/Oslo' date +%H)
           echo "Current hour in Oslo: $OSLO_HOUR"
