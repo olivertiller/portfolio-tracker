@@ -1,4 +1,4 @@
-name: Update movers gist
+name: Daily portfolio report
 
 on:
   schedule:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch: # Allow manual trigger
 
 jobs:
-  update:
+  report:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,10 +17,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install yfinance
+        run: pip install yfinance anthropic requests
 
       - name: Fetch movers and update gist
         env:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: "24236a25d105c46c64f122e4d60e12d6"
         run: python scripts/update_gist.py
+
+      - name: Generate report and send notification
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python scripts/generate_report.py
