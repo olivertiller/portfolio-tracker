@@ -20,7 +20,7 @@ Rules:
 - If you find confirmed intraday news, report the catalyst
 - If no intraday news found, state the most likely cause and label it "Likely cause:"
 - If no movers, just say: "Quiet day — no stocks moved more than ±2%."
-- Keep it concise — max 2 sentences per stock
+- Keep it concise — max 1-2 sentences per stock, aim for under 3500 characters total
 - Start with the trading date as a header"""
 
 
@@ -78,7 +78,14 @@ def generate_report(movers_data: dict) -> str:
 
 
 def send_ntfy(report: str, topic: str):
-    requests.post(
+    # ntfy limit is 4096 bytes; truncate if needed to avoid silent attachment conversion
+    max_bytes = 4000  # leave headroom for JSON envelope
+    encoded = report.encode("utf-8")
+    if len(encoded) > max_bytes:
+        report = encoded[:max_bytes].decode("utf-8", errors="ignore").rsplit("\n", 1)[0]
+        report += "\n\n_(truncated)_"
+
+    resp = requests.post(
         "https://ntfy.sh/",
         json={
             "topic": topic,
@@ -88,6 +95,7 @@ def send_ntfy(report: str, topic: str):
             "message": report,
         },
     )
+    resp.raise_for_status()
 
 
 def main():
