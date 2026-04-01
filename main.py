@@ -111,7 +111,13 @@ def get_daily_changes(refresh: bool = False):
 
 @app.get("/")
 def root():
-    return {"status": "ok", "endpoints": ["/portfolio", "/movers"]}
+    return {"status": "ok", "endpoints": ["/portfolio", "/movers", "/health"]}
+
+
+@app.get("/health")
+def health():
+    """Lightweight endpoint to wake the service without fetching data."""
+    return {"status": "ok"}
 
 
 @app.get("/portfolio")

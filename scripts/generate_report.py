@@ -47,7 +47,7 @@ def generate_report(movers_data: dict) -> str:
     messages = [{"role": "user", "content": build_prompt(movers_data)}]
 
     response = client.messages.create(
-        model="claude-opus-4-6",
+        model="claude-sonnet-4-6",
         max_tokens=4096,
         system=SYSTEM_PROMPT,
         tools=[
@@ -63,7 +63,7 @@ def generate_report(movers_data: dict) -> str:
             {"role": "assistant", "content": response.content},
         ]
         response = client.messages.create(
-            model="claude-opus-4-6",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
             system=SYSTEM_PROMPT,
             tools=[
