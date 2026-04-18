@@ -1,6 +1,5 @@
 const reportContent = document.getElementById("report-content");
 const datePicker = document.getElementById("date-picker");
-const pushToggle = document.getElementById("push-toggle");
 const reportMeta = document.getElementById("report-meta");
 
 let sparklineData = null;
@@ -196,61 +195,36 @@ datePicker.addEventListener("change", () => {
     }
 });
 
-// --- Push notifications ---
+// --- Push notifications (auto-subscribe) ---
 
 async function initPush() {
-    if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        pushToggle.style.display = "none";
-        return;
-    }
-
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (sub) {
-        pushToggle.classList.add("active");
-    }
-}
-
-pushToggle.addEventListener("click", async () => {
-    const reg = await navigator.serviceWorker.ready;
-    const existing = await reg.pushManager.getSubscription();
-
-    if (existing) {
-        await fetch("/api/push/subscribe", {
-            method: "DELETE",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ endpoint: existing.endpoint }),
-        });
-        await existing.unsubscribe();
-        pushToggle.classList.remove("active");
-        return;
-    }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
     try {
-        const res = await fetch("/api/push/vapid-key");
-        if (!res.ok) {
-            alert("Push-varsler er ikke konfigurert enn\u00e5.");
-            return;
+        const reg = await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+
+        if (!sub) {
+            const res = await fetch("/api/push/vapid-key");
+            if (!res.ok) return;
+            const { publicKey } = await res.json();
+
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: urlBase64ToUint8Array(publicKey),
+            });
         }
-        const { publicKey } = await res.json();
 
-        const sub = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: urlBase64ToUint8Array(publicKey),
-        });
-
+        // Always re-register to ensure server has the subscription
         await fetch("/api/push/subscribe", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(sub.toJSON()),
         });
-
-        pushToggle.classList.add("active");
     } catch (e) {
-        console.error("Push subscription failed:", e);
-        alert("Kunne ikke aktivere push-varsler.");
+        console.error("Push setup failed:", e);
     }
-});
+}
 
 function urlBase64ToUint8Array(base64String) {
     const padding = "=".repeat((4 - (base64String.length % 4)) % 4);

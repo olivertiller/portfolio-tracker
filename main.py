@@ -9,7 +9,7 @@ import json
 import os
 import requests as http_requests
 
-from db import init_db, save_subscription, delete_subscription, get_all_subscriptions
+import re
 
 app = FastAPI(title="Portfolio Daily Movers")
 
@@ -180,11 +180,11 @@ def _send_push_notifications(title: str, body: str):
         return
 
     claims = json.loads(_env("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}'))
-    subscriptions = get_all_subscriptions()
+    subscriptions = _load_push_subs()
     print(f"Sending push to {len(subscriptions)} subscribers")
 
     for sub in subscriptions:
-        sub_info = {"endpoint": sub["endpoint"], "keys": sub["keys"]}
+        sub_info = {"endpoint": sub["endpoint"], "keys": sub.get("keys", {})}
         try:
             webpush(
                 subscription_info=sub_info,
@@ -194,7 +194,8 @@ def _send_push_notifications(title: str, body: str):
             )
         except WebPushException as e:
             if e.response and e.response.status_code in (404, 410):
-                delete_subscription(sub["endpoint"])
+                subs = [s for s in _load_push_subs() if s["endpoint"] != sub["endpoint"]]
+                _save_push_subs(subs)
                 print(f"Removed expired subscription: {sub['endpoint'][:50]}...")
             else:
                 print(f"Push failed: {e}")
@@ -202,9 +203,56 @@ def _send_push_notifications(title: str, body: str):
 
 # --- Startup ---
 
+# --- Push subscription storage (in Gist, persists across deploys) ---
+
+_push_subs_cache = {"data": None}
+
+
+def _load_push_subs() -> list[dict]:
+    if _push_subs_cache["data"] is not None:
+        return _push_subs_cache["data"]
+    try:
+        resp = http_requests.get(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers={"Accept": "application/vnd.github.v3+json"},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        files = resp.json().get("files", {})
+        if "push_subscriptions.json" in files:
+            content = files["push_subscriptions.json"].get("content", "[]")
+            _push_subs_cache["data"] = json.loads(content)
+            return _push_subs_cache["data"]
+    except Exception as e:
+        print(f"Failed to load push subs: {e}")
+    _push_subs_cache["data"] = []
+    return []
+
+
+def _save_push_subs(subs: list[dict]):
+    _push_subs_cache["data"] = subs
+    token = _env("GH_TOKEN") or _env("GIST_TOKEN")
+    if not token:
+        print("No GH_TOKEN, cannot save push subscriptions")
+        return
+    try:
+        content = json.dumps(subs, indent=2)
+        http_requests.patch(
+            f"https://api.github.com/gists/{GIST_ID}",
+            headers={
+                "Authorization": f"token {token}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            json={"files": {"push_subscriptions.json": {"content": content}}},
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"Failed to save push subs: {e}")
+
+
 @app.on_event("startup")
 def startup():
-    init_db()
+    pass
 
 
 # --- API endpoints ---
@@ -317,7 +365,11 @@ def vapid_key():
 def subscribe(subscription: dict):
     if not subscription.get("endpoint"):
         raise HTTPException(status_code=400, detail="Invalid subscription")
-    save_subscription(subscription)
+    subs = _load_push_subs()
+    # Replace existing or add new
+    subs = [s for s in subs if s["endpoint"] != subscription["endpoint"]]
+    subs.append(subscription)
+    _save_push_subs(subs)
     return {"status": "subscribed"}
 
 
@@ -326,7 +378,8 @@ def unsubscribe(body: dict):
     endpoint = body.get("endpoint")
     if not endpoint:
         raise HTTPException(status_code=400, detail="endpoint required")
-    delete_subscription(endpoint)
+    subs = [s for s in _load_push_subs() if s["endpoint"] != endpoint]
+    _save_push_subs(subs)
     return {"status": "unsubscribed"}
 
 
