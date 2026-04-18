@@ -4,6 +4,13 @@ const reportMeta = document.getElementById("report-meta");
 
 let sparklineData = null;
 
+function esc(s) {
+    if (!s) return "";
+    const d = document.createElement("div");
+    d.textContent = s;
+    return d.innerHTML;
+}
+
 const MARKET_LABELS = {
     "Nordic": "Norden",
     "Europe": "Europa",
@@ -103,14 +110,14 @@ function renderReport(data) {
                 spark = `<div class="sparkline-row">${buildSparklineSVG(sparklineData[m.ticker])}<span class="sparkline-label">3 mnd</span></div>`;
             }
 
-            const source = m.source ? `<span class="source">${m.source}</span>` : "";
+            const source = m.source ? `<span class="source">${esc(m.source)}</span>` : "";
 
             html += `<div class="stock-entry">
                 <div class="stock-header">
-                    <strong>${m.name}</strong>
+                    <strong>${esc(m.name)}</strong>
                     <span class="${pctClass}">${pctStr}</span>
                 </div>
-                <p class="explanation">${tag} ${m.explanation} ${source}</p>
+                <p class="explanation">${tag} ${esc(m.explanation)} ${source}</p>
                 ${spark}
             </div>`;
         }
@@ -181,7 +188,11 @@ async function fetchReportHistory() {
 
 function showReport(data) {
     renderReport(data);
-    reportMeta.textContent = `Generert ${new Date(data.created_at).toLocaleString("no-NO")}`;
+    if (data.created_at) {
+        reportMeta.textContent = `Generert ${new Date(data.created_at).toLocaleString("no-NO")}`;
+    } else {
+        reportMeta.textContent = "";
+    }
     if (datePicker.value !== data.date) {
         datePicker.value = data.date;
     }
@@ -261,8 +272,7 @@ if ("serviceWorker" in navigator) {
 
 async function init() {
     await fetchSparklines();
-    fetchLatestReport();
-    fetchReportHistory();
+    await Promise.all([fetchLatestReport(), fetchReportHistory()]);
     initPush();
 }
 

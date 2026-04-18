@@ -2,14 +2,12 @@ from fastapi import FastAPI, Query, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 import threading
 import json
 import os
 import requests as http_requests
-
-import re
 
 app = FastAPI(title="Portfolio Daily Movers")
 
@@ -20,8 +18,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def _env(key, default=""):
     return os.environ.get(key, default)
+
+
 GIST_ID = os.environ.get("GIST_ID", "24236a25d105c46c64f122e4d60e12d6")
 
 DEFAULT_PORTFOLIO = {
@@ -64,9 +65,13 @@ _reports_cache = {"data": None, "timestamp": None}
 REPORTS_CACHE_TTL = timedelta(minutes=5)
 
 
+def _now():
+    return datetime.now(timezone.utc)
+
+
 def _fetch_reports_from_gist() -> list[dict]:
     """Fetch reports.json from the public GitHub Gist."""
-    now = datetime.utcnow()
+    now = _now()
     if (
         _reports_cache["data"] is not None
         and now - _reports_cache["timestamp"] < REPORTS_CACHE_TTL
@@ -90,14 +95,13 @@ def _fetch_reports_from_gist() -> list[dict]:
 
         content = files["reports.json"].get("content", "[]")
         reports = json.loads(content)
-        reports.sort(key=lambda r: r["date"], reverse=True)
+        reports.sort(key=lambda r: r.get("date", ""), reverse=True)
 
         _reports_cache["data"] = reports
         _reports_cache["timestamp"] = now
         return reports
     except Exception as e:
         print(f"Failed to fetch reports from gist: {e}")
-        # Return stale cache if available
         if _reports_cache["data"] is not None:
             return _reports_cache["data"]
         return []
@@ -137,7 +141,7 @@ def get_daily_changes(refresh: bool = False):
         if (
             not refresh
             and _cache["data"] is not None
-            and datetime.utcnow() - _cache["timestamp"] < CACHE_TTL
+            and _now() - _cache["timestamp"] < CACHE_TTL
         ):
             return _cache["data"]
 
@@ -156,7 +160,7 @@ def get_daily_changes(refresh: bool = False):
 
     with _cache_lock:
         _cache["data"] = results
-        _cache["timestamp"] = datetime.utcnow()
+        _cache["timestamp"] = _now()
 
     return results
 
@@ -179,7 +183,12 @@ def _send_push_notifications(title: str, body: str):
         print("pywebpush not installed, skipping push")
         return
 
-    claims = json.loads(_env("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}'))
+    try:
+        claims = json.loads(_env("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}'))
+    except json.JSONDecodeError:
+        print("VAPID_CLAIMS is not valid JSON, skipping push")
+        return
+
     subscriptions = _load_push_subs()
     print(f"Sending push to {len(subscriptions)} subscribers")
 
@@ -193,26 +202,25 @@ def _send_push_notifications(title: str, body: str):
                 vapid_claims=claims,
             )
         except WebPushException as e:
-            if e.response and e.response.status_code in (404, 410):
+            resp = getattr(e, "response", None)
+            if resp and resp.status_code in (404, 410):
                 subs = [s for s in _load_push_subs() if s["endpoint"] != sub["endpoint"]]
                 _save_push_subs(subs)
                 print(f"Removed expired subscription: {sub['endpoint'][:50]}...")
             else:
                 print(f"Push failed for {sub['endpoint'][:50]}: {e}")
-            import traceback
-            traceback.print_exc()
 
-
-# --- Startup ---
 
 # --- Push subscription storage (in Gist, persists across deploys) ---
 
 _push_subs_cache = {"data": None}
+_push_subs_lock = threading.Lock()
 
 
 def _load_push_subs() -> list[dict]:
-    if _push_subs_cache["data"] is not None:
-        return _push_subs_cache["data"]
+    with _push_subs_lock:
+        if _push_subs_cache["data"] is not None:
+            return _push_subs_cache["data"]
     try:
         resp = http_requests.get(
             f"https://api.github.com/gists/{GIST_ID}",
@@ -223,16 +231,20 @@ def _load_push_subs() -> list[dict]:
         files = resp.json().get("files", {})
         if "push_subscriptions.json" in files:
             content = files["push_subscriptions.json"].get("content", "[]")
-            _push_subs_cache["data"] = json.loads(content)
-            return _push_subs_cache["data"]
+            subs = json.loads(content)
+            with _push_subs_lock:
+                _push_subs_cache["data"] = subs
+            return subs
     except Exception as e:
         print(f"Failed to load push subs: {e}")
-    _push_subs_cache["data"] = []
+    with _push_subs_lock:
+        _push_subs_cache["data"] = []
     return []
 
 
 def _save_push_subs(subs: list[dict]):
-    _push_subs_cache["data"] = subs
+    with _push_subs_lock:
+        _push_subs_cache["data"] = subs
     token = _env("GH_TOKEN") or _env("GIST_TOKEN")
     if not token:
         print("No GH_TOKEN, cannot save push subscriptions")
@@ -252,27 +264,18 @@ def _save_push_subs(subs: list[dict]):
         print(f"Failed to save push subs: {e}")
 
 
-@app.on_event("startup")
-def startup():
-    pass
-
-
 # --- API endpoints ---
 
 @app.get("/health")
 def health():
-    """Lightweight endpoint to wake the service without fetching data."""
     return {"status": "ok"}
 
 
 @app.get("/api/portfolio")
 def portfolio(refresh: bool = Query(default=False, description="Bypass cache")):
-    """All stocks with daily change."""
     changes = get_daily_changes(refresh=refresh)
-    cached = not refresh and _cache["data"] is changes
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
-        "cached": cached,
+        "generated_at": _now().isoformat(),
         "count": len(changes),
         "stocks": changes,
     }
@@ -283,15 +286,12 @@ def movers(
     threshold: float = Query(default=2.0, description="Min absolute % change"),
     refresh: bool = Query(default=False, description="Bypass cache"),
 ):
-    """Only stocks that moved more than +/-threshold%."""
     changes = get_daily_changes(refresh=refresh)
     significant = [s for s in changes if abs(s.get("change_pct", 0)) >= threshold]
     calm = [s for s in changes if abs(s.get("change_pct", 0)) < threshold and "error" not in s]
-    cached = not refresh and _cache["data"] is changes
 
     return {
-        "generated_at": datetime.utcnow().isoformat() + "Z",
-        "cached": cached,
+        "generated_at": _now().isoformat(),
         "threshold_pct": threshold,
         "movers_count": len(significant),
         "movers": significant,
@@ -329,14 +329,17 @@ def list_reports(
     offset: int = Query(default=0),
 ):
     reports = _fetch_reports_from_gist()
-    return [{"date": r["date"], "created_at": r["created_at"]} for r in reports[offset:offset + limit]]
+    return [
+        {"date": r.get("date", ""), "created_at": r.get("created_at", "")}
+        for r in reports[offset:offset + limit]
+    ]
 
 
 @app.get("/api/report/{date}")
 def report_by_date(date: str):
     reports = _fetch_reports_from_gist()
     for r in reports:
-        if r["date"] == date:
+        if r.get("date") == date:
             return r
     raise HTTPException(status_code=404, detail="Report not found")
 
@@ -345,7 +348,6 @@ def report_by_date(date: str):
 @app.post("/api/push/notify")
 def trigger_push(request_body: dict, x_api_key: str = Header(default=None)):
     _verify_api_key(x_api_key)
-    # Invalidate reports cache so next read picks up the new report
     _reports_cache["data"] = None
     try:
         _send_push_notifications(
@@ -373,7 +375,6 @@ def subscribe(subscription: dict):
     if not subscription.get("endpoint"):
         raise HTTPException(status_code=400, detail="Invalid subscription")
     subs = _load_push_subs()
-    # Replace existing or add new
     subs = [s for s in subs if s["endpoint"] != subscription["endpoint"]]
     subs.append(subscription)
     _save_push_subs(subs)
@@ -398,8 +399,7 @@ SPARKLINE_TTL = timedelta(hours=1)
 
 @app.get("/api/sparklines")
 def sparklines():
-    """3-month daily closes for all portfolio stocks."""
-    now = datetime.utcnow()
+    now = _now()
     if (
         _sparkline_cache["data"] is not None
         and now - _sparkline_cache["timestamp"] < SPARKLINE_TTL

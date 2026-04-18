@@ -68,7 +68,8 @@ def main():
             executor.submit(fetch_single, ticker, info): ticker
             for ticker, info in PORTFOLIO.items()
         }
-        results = [f.result() for f in futures if f.result() is not None]
+        raw = [f.result() for f in futures]
+        results = [r for r in raw if r is not None]
 
     results.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
 
