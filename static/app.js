@@ -47,8 +47,42 @@ function renderMarkdown(md) {
     // Strip emoji circles (from older reports)
     md = md.replace(/\u{1F7E2}\s*/gu, "").replace(/\u{1F534}\s*/gu, "");
 
-    // Strip leading "- " from stock entry lines (before markdown processing)
+    // Strip leading "- " from stock entry lines
     md = md.replace(/^- \*\*/gm, "**");
+
+    // Pre-process: merge multi-line stock entries into single blocks.
+    // A stock entry starts with **Name** (±X.X%) and continues until
+    // the next stock entry, header, horizontal rule, or double newline.
+    const lines = md.split("\n");
+    const merged = [];
+    let stockBuf = null;
+
+    function flushStock() {
+        if (stockBuf) {
+            merged.push("@@STOCK@@" + stockBuf.join(" "));
+            stockBuf = null;
+        }
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isStockStart = /^\*\*[^*]+\*\*\s*\([+-]?\d/.test(line);
+        const isHeader = /^#{1,3}\s/.test(line);
+        const isRule = /^---$/.test(line);
+        const isEmpty = line.trim() === "";
+
+        if (isStockStart) {
+            flushStock();
+            stockBuf = [line];
+        } else if (stockBuf && !isHeader && !isRule && !isEmpty) {
+            stockBuf.push(line);
+        } else {
+            flushStock();
+            merged.push(line);
+        }
+    }
+    flushStock();
+    md = merged.join("\n");
 
     let html = md
         // Headers
@@ -63,7 +97,7 @@ function renderMarkdown(md) {
         .replace(/\*(.+?)\*/g, "<em>$1</em>")
         // Links
         .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-        // Unordered lists (only non-stock lines)
+        // Unordered lists
         .replace(/^[*-] (.+)$/gm, "<li>$1</li>")
         // Numbered lists
         .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
@@ -78,13 +112,12 @@ function renderMarkdown(md) {
         '<span class="pct-down">($1)</span>'
     );
 
-    // Inject sparklines below each stock's text block
-    // Match stock entries with or without the em-dash separator
+    // Convert @@STOCK@@ markers into styled stock-entry divs with sparklines
     html = html.replace(
-        /(<strong>([^<]+)<\/strong>\s*<span class="pct-(?:up|down)">(?:[^<]+)<\/span>)\s*(?:\u2014\s*)?(.*)/g,
+        /@@STOCK@@(<strong>([^<]+)<\/strong>\s*<span class="pct-(?:up|down)">(?:[^<]+)<\/span>)\s*(?:\u2014\s*)?(.*)/g,
         (match, prefix, name, explanation) => {
             const ticker = TICKER_NAMES[name];
-            if (!ticker) return match; // Not a stock entry, leave as-is
+            if (!ticker) return explanation ? `${prefix} ${explanation}` : prefix;
             let spark = "";
             if (sparklineData && sparklineData[ticker]) {
                 spark = `<div class="sparkline-row">${buildSparklineSVG(sparklineData[ticker])}<span class="sparkline-label">3 mnd</span></div>`;
