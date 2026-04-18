@@ -47,6 +47,9 @@ function renderMarkdown(md) {
     // Strip emoji circles (from older reports)
     md = md.replace(/\u{1F7E2}\s*/gu, "").replace(/\u{1F534}\s*/gu, "");
 
+    // Strip leading "- " from stock entry lines (before markdown processing)
+    md = md.replace(/^- \*\*/gm, "**");
+
     let html = md
         // Headers
         .replace(/^### (.+)$/gm, "<h3>$1</h3>")
@@ -60,7 +63,7 @@ function renderMarkdown(md) {
         .replace(/\*(.+?)\*/g, "<em>$1</em>")
         // Links
         .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-        // Unordered lists
+        // Unordered lists (only non-stock lines)
         .replace(/^[*-] (.+)$/gm, "<li>$1</li>")
         // Numbered lists
         .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
@@ -76,12 +79,14 @@ function renderMarkdown(md) {
     );
 
     // Inject sparklines below each stock's text block
+    // Match stock entries with or without the em-dash separator
     html = html.replace(
-        /(<strong>([^<]+)<\/strong>\s*<span class="pct-(?:up|down)">(?:[^<]+)<\/span>)\s*\u2014\s*(.*)/g,
+        /(<strong>([^<]+)<\/strong>\s*<span class="pct-(?:up|down)">(?:[^<]+)<\/span>)\s*(?:\u2014\s*)?(.*)/g,
         (match, prefix, name, explanation) => {
             const ticker = TICKER_NAMES[name];
+            if (!ticker) return match; // Not a stock entry, leave as-is
             let spark = "";
-            if (ticker && sparklineData && sparklineData[ticker]) {
+            if (sparklineData && sparklineData[ticker]) {
                 spark = `<div class="sparkline-row">${buildSparklineSVG(sparklineData[ticker])}<span class="sparkline-label">3 mnd</span></div>`;
             }
             return `<div class="stock-entry">${prefix}<br>${explanation}${spark}</div>`;
@@ -98,6 +103,7 @@ function renderMarkdown(md) {
             block = block.trim();
             if (!block) return "";
             if (/^<[hulo]/.test(block)) return block;
+            if (/^<div/.test(block)) return block;
             if (block === "<hr>") return block;
             return `<p>${block.replace(/\n/g, "<br>")}</p>`;
         })
