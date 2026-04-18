@@ -92,15 +92,28 @@ def generate_report(movers_data: dict) -> dict:
         ]
         response = _call_api(messages)
 
-    # Extract text from response
+    # Extract text from response — try all text blocks, find the one with JSON
     text_parts = [block.text for block in response.content if block.type == "text"]
-    text = "\n".join(text_parts).strip()
 
-    # Handle markdown code blocks
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+    for part in reversed(text_parts):  # JSON is usually in the last text block
+        text = part.strip()
+        # Handle markdown code blocks
+        if "```" in text:
+            text = text.split("```json")[-1].split("```")[-2] if "```json" in text else text.split("```")[1]
+            text = text.strip()
+        # Try to find JSON object
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            try:
+                return json.loads(text[start:end])
+            except json.JSONDecodeError:
+                continue
 
-    return json.loads(text)
+    # Fallback: dump raw text for debugging
+    all_text = "\n".join(text_parts)
+    print(f"Could not parse JSON from response. Raw text:\n{all_text[:500]}")
+    raise Exception("Claude did not return valid JSON")
 
 
 def save_report_to_gist(report: dict, date: str, gist_id: str):
