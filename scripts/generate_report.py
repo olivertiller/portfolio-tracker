@@ -1,11 +1,13 @@
-"""Generate a daily portfolio report using Claude API and send via ntfy."""
+"""Generate a daily portfolio report using Claude API and save to GitHub Gist."""
 
 import json
 import os
+import re
+import subprocess
 import sys
+from datetime import datetime, timezone
 
 import anthropic
-import requests
 
 SYSTEM_PROMPT = """You are a concise financial news analyst. You write in English.
 You receive portfolio movers data (stocks that moved ±2% intraday) and must explain each move.
@@ -14,13 +16,13 @@ Rules:
 - Only report news from the specific trading day in the data — never older news
 - Group by market in this order: Nordics -> Europe -> US
 - Format each mover like this:
-  - Positive move: **Company Name** (🟢 +X.X%) — explanation
-  - Negative move: **Company Name** (🔴 -X.X%) — explanation
+  - Positive move: **Company Name** (+X.X%) — explanation
+  - Negative move: **Company Name** (-X.X%) — explanation
 - Use the full company name from the data, not just the ticker
 - If you find confirmed intraday news, report the catalyst
 - If no intraday news found, state the most likely cause and label it "Likely cause:"
 - If no movers, just say: "Quiet day — no stocks moved more than ±2%."
-- Keep it concise — max 1-2 sentences per stock, aim for under 3500 characters total
+- Keep it concise — max 1-2 sentences per stock
 - Start with the trading date as a header"""
 
 
@@ -77,25 +79,68 @@ def generate_report(movers_data: dict) -> str:
     return "\n".join(text_parts)
 
 
-def send_ntfy(report: str, topic: str):
-    # ntfy limit is 4096 bytes; truncate if needed to avoid silent attachment conversion
-    max_bytes = 4000  # leave headroom for JSON envelope
-    encoded = report.encode("utf-8")
-    if len(encoded) > max_bytes:
-        report = encoded[:max_bytes].decode("utf-8", errors="ignore").rsplit("\n", 1)[0]
-        report += "\n\n_(truncated)_"
+def extract_date(report: str) -> str:
+    """Extract date from report header, fallback to movers data."""
+    match = re.search(r"(\d{4}-\d{2}-\d{2})", report)
+    if match:
+        return match.group(1)
+    return ""
 
-    resp = requests.post(
-        "https://ntfy.sh/",
-        json={
-            "topic": topic,
-            "title": "Daily Portfolio Report",
-            "tags": ["chart_with_upwards_trend"],
-            "markdown": True,
-            "message": report,
-        },
+
+def save_report_to_gist(report: str, date: str, gist_id: str):
+    """Read existing reports from gist, append new report, write back."""
+    # Read existing reports.json from gist
+    existing = []
+    try:
+        result = subprocess.run(
+            ["gh", "gist", "view", gist_id, "--filename", "reports.json"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            existing = json.loads(result.stdout)
+    except (json.JSONDecodeError, Exception) as e:
+        print(f"Could not read existing reports: {e}")
+
+    # Remove existing report for same date (if re-running)
+    existing = [r for r in existing if r["date"] != date]
+
+    # Add new report
+    existing.append({
+        "date": date,
+        "content": report,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    # Sort newest first, keep last 90 days
+    existing.sort(key=lambda r: r["date"], reverse=True)
+    existing = existing[:90]
+
+    # Write to gist
+    tmp_path = "/tmp/reports.json"
+    with open(tmp_path, "w") as f:
+        json.dump(existing, f, ensure_ascii=False, indent=2)
+
+    subprocess.run(
+        ["gh", "gist", "edit", gist_id, "--filename", "reports.json", tmp_path],
+        check=True,
     )
-    resp.raise_for_status()
+    print(f"Report saved to gist for {date}")
+
+
+def notify_app(api_url: str, api_secret: str, date: str):
+    """Tell the Railway app to send push notifications."""
+    import requests
+    try:
+        resp = requests.post(
+            f"{api_url}/api/push/notify",
+            json={"title": "Porteføljerapport", "body": f"Ny rapport for {date} er klar"},
+            headers={"X-API-Key": api_secret},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        print("Push notifications triggered")
+    except Exception as e:
+        print(f"Push notification failed (non-critical): {e}")
 
 
 def main():
@@ -111,12 +156,22 @@ def main():
     report = generate_report(movers_data)
     print(report)
 
-    ntfy_topic = os.environ.get("NTFY_TOPIC")
-    if ntfy_topic:
-        send_ntfy(report, ntfy_topic)
-        print(f"\nReport sent to ntfy topic: {ntfy_topic}")
-    else:
-        print("\nNo NTFY_TOPIC set, skipping notification")
+    gist_id = os.environ.get("GIST_ID")
+    if not gist_id:
+        print("\nNo GIST_ID set, skipping publish")
+        return
+
+    date = extract_date(report)
+    if not date and movers_data["movers"]:
+        date = movers_data["movers"][0]["date"]
+
+    save_report_to_gist(report, date, gist_id)
+
+    # Trigger push notifications via the app
+    api_url = os.environ.get("API_URL")
+    api_secret = os.environ.get("API_SECRET")
+    if api_url and api_secret:
+        notify_app(api_url, api_secret, date)
 
 
 if __name__ == "__main__":

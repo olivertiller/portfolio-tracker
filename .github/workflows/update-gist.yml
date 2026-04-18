@@ -22,8 +22,11 @@ jobs:
           GIST_ID: "24236a25d105c46c64f122e4d60e12d6"
         run: python scripts/update_gist.py
 
-      - name: Generate report and send notification
+      - name: Generate report and publish
         env:
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: "24236a25d105c46c64f122e4d60e12d6"
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          API_URL: ${{ secrets.API_URL }}
+          API_SECRET: ${{ secrets.API_SECRET }}
         run: python scripts/generate_report.py

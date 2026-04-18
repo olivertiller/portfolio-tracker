@@ -28,7 +28,6 @@ PORTFOLIO = {
     "KIT.OL": {"name": "Kitron", "market": "Nordic"},
     "KOMPL.OL": {"name": "Komplett", "market": "Nordic"},
     "KOG.OL": {"name": "Kongsberg Gruppen", "market": "Nordic"},
-    "NORBT.OL": {"name": "NORBIT", "market": "Nordic"},
     "NOD.OL": {"name": "Nordic Semiconductor", "market": "Nordic"},
     "NHY.OL": {"name": "Norsk Hydro", "market": "Nordic"},
     "PARB.OL": {"name": "Pareto Bank", "market": "Nordic"},

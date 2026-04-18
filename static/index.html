@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="description" content="Daglig porteføljerapport">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+    <title>Porteføljerapport</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header>
+        <h1>Porteføljerapport</h1>
+        <div class="header-controls">
+            <select id="date-picker" aria-label="Velg rapport-dato">
+                <option value="">Laster...</option>
+            </select>
+            <button id="sparkline-toggle" class="icon-btn" title="Vis/skjul trendlinjer" aria-label="Vis/skjul trendlinjer">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="4 18 8 12 12 15 16 8 20 11"/>
+                </svg>
+            </button>
+            <button id="push-toggle" class="icon-btn" title="Push-varsler" aria-label="Slå på push-varsler">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <article id="report-content">
+            <div class="loading">Henter rapport...</div>
+        </article>
+    </main>
+
+    <footer>
+        <p id="report-meta"></p>
+    </footer>
+
+    <script src="/app.js"></script>
+</body>
+</html>
