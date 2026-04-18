@@ -20,10 +20,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-API_SECRET = os.environ.get("API_SECRET", "")
-VAPID_PRIVATE_KEY = os.environ.get("VAPID_PRIVATE_KEY", "")
-VAPID_PUBLIC_KEY = os.environ.get("VAPID_PUBLIC_KEY", "")
-VAPID_CLAIMS = os.environ.get("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}')
+def _env(key, default=""):
+    return os.environ.get(key, default)
 GIST_ID = os.environ.get("GIST_ID", "24236a25d105c46c64f122e4d60e12d6")
 
 DEFAULT_PORTFOLIO = {
@@ -164,14 +162,14 @@ def get_daily_changes(refresh: bool = False):
 
 
 def _verify_api_key(x_api_key: str | None):
-    if not API_SECRET:
+    if not _env("API_SECRET"):
         raise HTTPException(status_code=500, detail="API_SECRET not configured")
-    if x_api_key != API_SECRET:
+    if x_api_key != _env("API_SECRET"):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 def _send_push_notifications(title: str, body: str):
-    if not VAPID_PRIVATE_KEY:
+    if not _env("VAPID_PRIVATE_KEY"):
         print("VAPID keys not configured, skipping push")
         return
 
@@ -181,7 +179,7 @@ def _send_push_notifications(title: str, body: str):
         print("pywebpush not installed, skipping push")
         return
 
-    claims = json.loads(VAPID_CLAIMS)
+    claims = json.loads(_env("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}'))
     subscriptions = get_all_subscriptions()
     print(f"Sending push to {len(subscriptions)} subscribers")
 
@@ -191,7 +189,7 @@ def _send_push_notifications(title: str, body: str):
             webpush(
                 subscription_info=sub_info,
                 data=json.dumps({"title": title, "body": body}),
-                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_private_key=_env("VAPID_PRIVATE_KEY"),
                 vapid_claims=claims,
             )
         except WebPushException as e:
@@ -310,9 +308,9 @@ def trigger_push(request_body: dict, x_api_key: str = Header(default=None)):
 
 @app.get("/api/push/vapid-key")
 def vapid_key():
-    if not VAPID_PUBLIC_KEY:
+    if not _env("VAPID_PUBLIC_KEY"):
         raise HTTPException(status_code=500, detail="VAPID keys not configured")
-    return {"publicKey": VAPID_PUBLIC_KEY}
+    return {"publicKey": _env("VAPID_PUBLIC_KEY")}
 
 
 @app.post("/api/push/subscribe")
