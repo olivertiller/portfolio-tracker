@@ -61,8 +61,8 @@ def generate_report(movers_data: dict) -> str:
                     ],
                     messages=msgs,
                 )
-            except anthropic.RateLimitError as e:
-                wait = 30 * (attempt + 1)
+            except anthropic.RateLimitError:
+                wait = 60 * (attempt + 1)
                 print(f"Rate limited, waiting {wait}s... (attempt {attempt + 1}/5)")
                 time.sleep(wait)
         raise Exception("Rate limit exceeded after 5 retries")
@@ -118,14 +118,15 @@ def save_report_to_gist(report: str, date: str, gist_id: str):
     existing.sort(key=lambda r: r["date"], reverse=True)
     existing = existing[:90]
 
-    # Write to gist
-    tmp_path = "/tmp/reports.json"
-    with open(tmp_path, "w") as f:
-        json.dump(existing, f, ensure_ascii=False, indent=2)
-
+    # Write to gist via GitHub API (supports both creating and updating files)
+    content = json.dumps(existing, ensure_ascii=False, indent=2)
     subprocess.run(
-        ["gh", "gist", "edit", gist_id, "--filename", "reports.json", tmp_path],
+        [
+            "gh", "api", "--method", "PATCH", f"/gists/{gist_id}",
+            "-f", f"files[reports.json][content]={content}",
+        ],
         check=True,
+        capture_output=True,
     )
     print(f"Report saved to gist for {date}")
 
