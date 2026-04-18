@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 import anthropic
@@ -48,15 +49,25 @@ def generate_report(movers_data: dict) -> str:
 
     messages = [{"role": "user", "content": build_prompt(movers_data)}]
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=4096,
-        system=SYSTEM_PROMPT,
-        tools=[
-            {"type": "web_search_20250305", "name": "web_search"},
-        ],
-        messages=messages,
-    )
+    def _call_api(msgs):
+        for attempt in range(5):
+            try:
+                return client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=4096,
+                    system=SYSTEM_PROMPT,
+                    tools=[
+                        {"type": "web_search_20250305", "name": "web_search"},
+                    ],
+                    messages=msgs,
+                )
+            except anthropic.RateLimitError as e:
+                wait = 30 * (attempt + 1)
+                print(f"Rate limited, waiting {wait}s... (attempt {attempt + 1}/5)")
+                time.sleep(wait)
+        raise Exception("Rate limit exceeded after 5 retries")
+
+    response = _call_api(messages)
 
     # Handle pause_turn (server-side tool loop hit iteration limit)
     while response.stop_reason == "pause_turn":
@@ -64,15 +75,7 @@ def generate_report(movers_data: dict) -> str:
             {"role": "user", "content": build_prompt(movers_data)},
             {"role": "assistant", "content": response.content},
         ]
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=[
-                {"type": "web_search_20250305", "name": "web_search"},
-            ],
-            messages=messages,
-        )
+        response = _call_api(messages)
 
     # Extract text from response
     text_parts = [block.text for block in response.content if block.type == "text"]
