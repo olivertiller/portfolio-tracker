@@ -159,12 +159,58 @@ article a:hover {
     font-weight: 600;
 }
 
-.stock-entry {
-    margin-bottom: 20px;
+.summary {
+    color: var(--text-muted);
+    margin-bottom: 8px;
 }
 
-.stock-entry strong {
+.stock-entry {
+    margin-bottom: 24px;
+}
+
+.stock-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.stock-header strong {
     font-size: 1.05rem;
+}
+
+.explanation {
+    margin: 0;
+    line-height: 1.5;
+}
+
+.tag {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 4px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.tag-confirmed {
+    background: #dcfce7;
+    color: var(--green);
+}
+
+.tag-likely {
+    background: #fef3c7;
+    color: #b45309;
+}
+
+.source {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.source::before {
+    content: "\2014  ";
 }
 
 .sparkline-row {

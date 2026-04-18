@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -10,32 +9,41 @@ from datetime import datetime, timezone
 
 import anthropic
 
-SYSTEM_PROMPT = """You are a concise financial news analyst. You write in English.
-You receive portfolio movers data (stocks that moved ±2% intraday) and must explain each move.
+SYSTEM_PROMPT = """You are a financial news analyst. You receive portfolio movers data and must explain each move.
 
-Rules:
-- Only report news from the specific trading day in the data — never older news
-- Group by market in this order: Nordics -> Europe -> US
-- Start with 1-2 sentences of macro context for the day (index moves, key events)
-- Format each mover as a plain paragraph (NOT a bullet list):
-  **Company Name** (+X.X%) — explanation
-- Use the full company name from the data, not just the ticker
+You MUST respond with a valid JSON object and nothing else. No markdown, no commentary.
 
-Explanation guidelines:
-- Focus on WHY the stock moved — the catalyst, not what the company does
-- Never include general company descriptions (sector, history, name changes, etc.)
-- When confirmed news exists: state the catalyst and source in 1-2 sentences
-- When no confirmed news: write "Likely cause:" followed by the most plausible driver — sector trends, macro spillover, or relevant peer moves are good here
-- When nothing plausible: write "No confirmed catalyst." plus brief market context if relevant (e.g. "Likely followed the broad market rally.")
-- Macro/sector context IS useful when it explains the move — just don't pad with background info about the company itself
-- If no movers at all, just say: "Quiet day — no stocks moved more than ±2%."
-- Keep it concise — max 1-2 sentences per stock
-- Start with the trading date as a header"""
+JSON schema:
+{
+  "summary": "1-2 sentences of macro context for the day (index moves, key events driving markets)",
+  "movers": [
+    {
+      "name": "Company Name (from input data)",
+      "ticker": "TICKER (from input data)",
+      "change_pct": 3.5,
+      "market": "Nordic|Europe|US (from input data)",
+      "confirmed": true,
+      "explanation": "Why the stock moved. 1-2 sentences max.",
+      "source": "Reuters|Bloomberg|Newsweb|etc or null"
+    }
+  ]
+}
+
+Rules for the explanation field:
+- Focus on WHY the stock moved — the catalyst only
+- Never include company descriptions, history, sector overview, or background
+- When you find confirmed news: set confirmed=true, cite the source
+- When no confirmed news: set confirmed=false, give the most plausible driver (sector trends, macro spillover, peer moves)
+- When nothing plausible: "No confirmed catalyst. Likely followed the broad market rally."
+- Macro/sector context IS useful when it explains the move
+- Max 1-2 sentences per stock
+
+Order movers by market: Nordic first, then Europe, then US."""
 
 
 def build_prompt(movers_data: dict) -> str:
     if movers_data["movers_count"] == 0:
-        return "No movers today. Respond accordingly."
+        return 'No movers today. Return: {"summary": "Quiet day — no stocks moved more than ±2%.", "movers": []}'
 
     movers_json = json.dumps(movers_data["movers"], indent=2)
     date = movers_data["movers"][0]["date"]
@@ -46,11 +54,12 @@ def build_prompt(movers_data: dict) -> str:
         f"{movers_json}\n\n"
         f"For each mover, search for news published on {date} that explains the price movement. "
         f"Use credible sources: Reuters, Bloomberg, FT for US/Europe. "
-        f"Newsweb (Oslo Børs), E24, Finansavisen, DN.no for Nordic stocks."
+        f"Newsweb (Oslo Børs), E24, Finansavisen, DN.no for Nordic stocks.\n\n"
+        f"Return ONLY the JSON object, no other text."
     )
 
 
-def generate_report(movers_data: dict) -> str:
+def generate_report(movers_data: dict) -> dict:
     client = anthropic.Anthropic()
 
     messages = [{"role": "user", "content": build_prompt(movers_data)}]
@@ -85,20 +94,17 @@ def generate_report(movers_data: dict) -> str:
 
     # Extract text from response
     text_parts = [block.text for block in response.content if block.type == "text"]
-    return "\n".join(text_parts)
+    text = "\n".join(text_parts).strip()
+
+    # Handle markdown code blocks
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+    return json.loads(text)
 
 
-def extract_date(report: str) -> str:
-    """Extract date from report header, fallback to movers data."""
-    match = re.search(r"(\d{4}-\d{2}-\d{2})", report)
-    if match:
-        return match.group(1)
-    return ""
-
-
-def save_report_to_gist(report: str, date: str, gist_id: str):
+def save_report_to_gist(report: dict, date: str, gist_id: str):
     """Read existing reports from gist, append new report, write back."""
-    # Read existing reports.json from gist
     existing = []
     try:
         result = subprocess.run(
@@ -116,7 +122,7 @@ def save_report_to_gist(report: str, date: str, gist_id: str):
     # Add new report
     existing.append({
         "date": date,
-        "content": report,
+        "report": report,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -124,7 +130,7 @@ def save_report_to_gist(report: str, date: str, gist_id: str):
     existing.sort(key=lambda r: r["date"], reverse=True)
     existing = existing[:90]
 
-    # Write to gist via GitHub API (supports both creating and updating files)
+    # Write to gist via GitHub API
     content = json.dumps(existing, ensure_ascii=False, indent=2)
     subprocess.run(
         [
@@ -164,16 +170,14 @@ def main():
 
     print(f"Generating report for {movers_data['movers_count']} movers...")
     report = generate_report(movers_data)
-    print(report)
+    date = movers_data["movers"][0]["date"] if movers_data["movers"] else datetime.now().strftime("%Y-%m-%d")
+
+    print(json.dumps(report, indent=2))
 
     gist_id = os.environ.get("GIST_ID")
     if not gist_id:
         print("\nNo GIST_ID set, skipping publish")
         return
-
-    date = extract_date(report)
-    if not date and movers_data["movers"]:
-        date = movers_data["movers"][0]["date"]
 
     save_report_to_gist(report, date, gist_id)
 

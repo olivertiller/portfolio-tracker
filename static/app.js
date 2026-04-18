@@ -5,17 +5,10 @@ const reportMeta = document.getElementById("report-meta");
 
 let sparklineData = null;
 
-// Ticker-to-name mapping (must match PORTFOLIO in main.py)
-const TICKER_NAMES = {
-    "Amazon": "AMZN", "Berkshire Hathaway B": "BRK-B", "Meta Platforms": "META",
-    "Microsoft": "MSFT", "nVent Electric": "NVT", "Royal Caribbean Cruises": "RCL",
-    "Rivian Automotive": "RIVN", "Vertiv Holdings": "VRT",
-    "L'Or\u00e9al": "OR.PA", "LVMH": "MC.PA", "BMW": "BMW.DE", "Siemens Energy": "ENR.DE",
-    "Aker": "AKER.OL", "Gjensidige Forsikring": "GJF.OL",
-    "Klaveness Combination Carriers": "KCC.OL", "KID": "KID.OL", "Kitron": "KIT.OL",
-    "Komplett": "KOMPL.OL", "Kongsberg Gruppen": "KOG.OL",
-    "Nordic Semiconductor": "NOD.OL", "Norsk Hydro": "NHY.OL", "Pareto Bank": "PARB.OL",
-    "SalMar": "SALM.OL", "Telenor": "TEL.OL", "Vend Marketplaces": "VEND.OL",
+const MARKET_LABELS = {
+    "Nordic": "Norden",
+    "Europe": "Europa",
+    "US": "USA",
 };
 
 // --- Sparkline SVG ---
@@ -41,108 +34,70 @@ function buildSparklineSVG(prices) {
         `</svg>`;
 }
 
-// --- Markdown rendering ---
+// --- Report rendering ---
 
-function renderMarkdown(md) {
-    // Strip emoji circles (from older reports)
-    md = md.replace(/\u{1F7E2}\s*/gu, "").replace(/\u{1F534}\s*/gu, "");
+function renderReport(data) {
+    const report = data.report || data;
 
-    // Strip leading "- " from stock entry lines
-    md = md.replace(/^- \*\*/gm, "**");
-
-    // Pre-process: merge multi-line stock entries into single blocks.
-    // A stock entry starts with **Name** (±X.X%) and continues until
-    // the next stock entry, header, horizontal rule, or double newline.
-    const lines = md.split("\n");
-    const merged = [];
-    let stockBuf = null;
-
-    function flushStock() {
-        if (stockBuf) {
-            merged.push("@@STOCK@@" + stockBuf.join(" "));
-            stockBuf = null;
-        }
+    // Legacy: old markdown-based reports stored as "content" string
+    if (data.content && typeof data.content === "string") {
+        reportContent.innerHTML = `<p>${data.content.replace(/\n/g, "<br>")}</p>`;
+        return;
     }
 
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const isStockStart = /^\*\*[^*]+\*\*\s*\([+-]?\d/.test(line);
-        const isHeader = /^#{1,3}\s/.test(line);
-        const isRule = /^---$/.test(line);
-        const isEmpty = line.trim() === "";
+    let html = "";
 
-        if (isStockStart) {
-            flushStock();
-            stockBuf = [line];
-        } else if (stockBuf && !isHeader && !isRule && !isEmpty) {
-            stockBuf.push(line);
-        } else {
-            flushStock();
-            merged.push(line);
-        }
+    // Date header
+    html += `<h1>${data.date}</h1>`;
+
+    // Summary
+    if (report.summary) {
+        html += `<p class="summary">${report.summary}</p>`;
     }
-    flushStock();
-    md = merged.join("\n");
 
-    let html = md
-        // Headers
-        .replace(/^### (.+)$/gm, "<h3>$1</h3>")
-        .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-        .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-        // Horizontal rules
-        .replace(/^---$/gm, "<hr>")
-        // Bold
-        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-        // Italic
-        .replace(/\*(.+?)\*/g, "<em>$1</em>")
-        // Links
-        .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-        // Unordered lists
-        .replace(/^[*-] (.+)$/gm, "<li>$1</li>")
-        // Numbered lists
-        .replace(/^\d+\. (.+)$/gm, "<li>$1</li>");
+    // Group movers by market
+    const groups = {};
+    for (const m of report.movers || []) {
+        const market = m.market || "Other";
+        if (!groups[market]) groups[market] = [];
+        groups[market].push(m);
+    }
 
-    // Color percentage values: (+X.X%) or (-X.X%)
-    html = html.replace(
-        /\((\+\d+\.?\d*%)\)/g,
-        '<span class="pct-up">($1)</span>'
-    );
-    html = html.replace(
-        /\((-\d+\.?\d*%)\)/g,
-        '<span class="pct-down">($1)</span>'
-    );
+    // Render in order: Nordic, Europe, US
+    for (const market of ["Nordic", "Europe", "US"]) {
+        const movers = groups[market];
+        if (!movers || movers.length === 0) continue;
 
-    // Convert @@STOCK@@ markers into styled stock-entry divs with sparklines
-    html = html.replace(
-        /@@STOCK@@(<strong>([^<]+)<\/strong>\s*<span class="pct-(?:up|down)">(?:[^<]+)<\/span>)\s*(?:\u2014\s*)?(.*)/g,
-        (match, prefix, name, explanation) => {
-            const ticker = TICKER_NAMES[name];
-            if (!ticker) return explanation ? `${prefix} ${explanation}` : prefix;
+        const label = MARKET_LABELS[market] || market;
+        html += `<h2>${label}</h2>`;
+
+        for (const m of movers) {
+            const pct = m.change_pct;
+            const pctClass = pct >= 0 ? "pct-up" : "pct-down";
+            const pctStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
+            const tag = m.confirmed
+                ? `<span class="tag tag-confirmed">Bekreftet</span>`
+                : `<span class="tag tag-likely">Sannsynlig</span>`;
+
             let spark = "";
-            if (sparklineData && sparklineData[ticker]) {
-                spark = `<div class="sparkline-row">${buildSparklineSVG(sparklineData[ticker])}<span class="sparkline-label">3 mnd</span></div>`;
+            if (sparklineData && sparklineData[m.ticker]) {
+                spark = `<div class="sparkline-row">${buildSparklineSVG(sparklineData[m.ticker])}<span class="sparkline-label">3 mnd</span></div>`;
             }
-            return `<div class="stock-entry">${prefix}<br>${explanation}${spark}</div>`;
+
+            const source = m.source ? `<span class="source">${m.source}</span>` : "";
+
+            html += `<div class="stock-entry">
+                <div class="stock-header">
+                    <strong>${m.name}</strong>
+                    <span class="${pctClass}">${pctStr}</span>
+                </div>
+                <p class="explanation">${tag} ${m.explanation} ${source}</p>
+                ${spark}
+            </div>`;
         }
-    );
+    }
 
-    // Wrap consecutive <li> in <ul>
-    html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, "<ul>$1</ul>");
-
-    // Paragraphs: split by double newline
-    html = html
-        .split(/\n{2,}/)
-        .map((block) => {
-            block = block.trim();
-            if (!block) return "";
-            if (/^<[hulo]/.test(block)) return block;
-            if (/^<div/.test(block)) return block;
-            if (block === "<hr>") return block;
-            return `<p>${block.replace(/\n/g, "<br>")}</p>`;
-        })
-        .join("\n");
-
-    return html;
+    reportContent.innerHTML = html;
 }
 
 // --- API calls ---
@@ -206,7 +161,7 @@ async function fetchReportHistory() {
 }
 
 function showReport(data) {
-    reportContent.innerHTML = renderMarkdown(data.content);
+    renderReport(data);
     reportMeta.textContent = `Generert ${new Date(data.created_at).toLocaleString("no-NO")}`;
     if (datePicker.value !== data.date) {
         datePicker.value = data.date;
@@ -311,7 +266,6 @@ if ("serviceWorker" in navigator) {
 // --- Init ---
 
 async function init() {
-    // Fetch sparklines and report in parallel
     await fetchSparklines();
     fetchLatestReport();
     fetchReportHistory();
