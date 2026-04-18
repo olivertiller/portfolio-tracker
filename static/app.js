@@ -34,6 +34,26 @@ function buildSparklineSVG(prices) {
         `</svg>`;
 }
 
+// --- Legacy markdown rendering (for old reports) ---
+
+function renderMarkdown(md) {
+    md = md.replace(/\u{1F7E2}\s*/gu, "").replace(/\u{1F534}\s*/gu, "");
+    let html = md
+        .replace(/^### (.+)$/gm, "<h2>$1</h2>")
+        .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+        .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+        .replace(/^---$/gm, "<hr>")
+        .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+        .replace(/\((\+\d+\.?\d*%)\)/g, '<span class="pct-up">(+$1)</span>')
+        .replace(/\(([−-]\d+\.?\d*%)\)/g, '<span class="pct-down">($1)</span>');
+    html = html.split(/\n{2,}/).map(block => {
+        block = block.trim();
+        if (!block || /^<[h]/.test(block) || block === "<hr>") return block;
+        return `<p>${block.replace(/\n/g, "<br>")}</p>`;
+    }).join("\n");
+    return html;
+}
+
 // --- Report rendering ---
 
 function renderReport(data) {
@@ -41,7 +61,7 @@ function renderReport(data) {
 
     // Legacy: old markdown-based reports stored as "content" string
     if (data.content && typeof data.content === "string") {
-        reportContent.innerHTML = `<p>${data.content.replace(/\n/g, "<br>")}</p>`;
+        reportContent.innerHTML = renderMarkdown(data.content);
         return;
     }
 

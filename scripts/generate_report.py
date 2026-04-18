@@ -59,49 +59,35 @@ def build_prompt(movers_data: dict) -> str:
     )
 
 
-def generate_report(movers_data: dict) -> dict:
-    client = anthropic.Anthropic()
+def _call_api(client, msgs):
+    for attempt in range(5):
+        try:
+            return client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                tools=[
+                    {"type": "web_search_20250305", "name": "web_search"},
+                ],
+                messages=msgs,
+            )
+        except anthropic.RateLimitError:
+            wait = 60 * (attempt + 1)
+            print(f"Rate limited, waiting {wait}s... (attempt {attempt + 1}/5)")
+            time.sleep(wait)
+    raise Exception("Rate limit exceeded after 5 retries")
 
-    messages = [{"role": "user", "content": build_prompt(movers_data)}]
 
-    def _call_api(msgs):
-        for attempt in range(5):
-            try:
-                return client.messages.create(
-                    model="claude-sonnet-4-6",
-                    max_tokens=4096,
-                    system=SYSTEM_PROMPT,
-                    tools=[
-                        {"type": "web_search_20250305", "name": "web_search"},
-                    ],
-                    messages=msgs,
-                )
-            except anthropic.RateLimitError:
-                wait = 60 * (attempt + 1)
-                print(f"Rate limited, waiting {wait}s... (attempt {attempt + 1}/5)")
-                time.sleep(wait)
-        raise Exception("Rate limit exceeded after 5 retries")
-
-    response = _call_api(messages)
-
-    # Handle pause_turn (server-side tool loop hit iteration limit)
-    while response.stop_reason == "pause_turn":
-        messages = [
-            {"role": "user", "content": build_prompt(movers_data)},
-            {"role": "assistant", "content": response.content},
-        ]
-        response = _call_api(messages)
-
-    # Extract text from response — try all text blocks, find the one with JSON
+def _extract_json(response) -> dict:
+    """Extract JSON from Claude's response, handling tool-use interleaving."""
+    # Handle pause_turn
     text_parts = [block.text for block in response.content if block.type == "text"]
 
-    for part in reversed(text_parts):  # JSON is usually in the last text block
+    for part in reversed(text_parts):
         text = part.strip()
-        # Handle markdown code blocks
         if "```" in text:
             text = text.split("```json")[-1].split("```")[-2] if "```json" in text else text.split("```")[1]
             text = text.strip()
-        # Try to find JSON object
         start = text.find("{")
         end = text.rfind("}") + 1
         if start >= 0 and end > start:
@@ -110,10 +96,62 @@ def generate_report(movers_data: dict) -> dict:
             except json.JSONDecodeError:
                 continue
 
-    # Fallback: dump raw text for debugging
     all_text = "\n".join(text_parts)
-    print(f"Could not parse JSON from response. Raw text:\n{all_text[:500]}")
+    print(f"Could not parse JSON. Raw text:\n{all_text[:500]}")
     raise Exception("Claude did not return valid JSON")
+
+
+def _analyze_market_batch(client, movers: list, date: str) -> dict:
+    """Analyze a batch of movers for one market group."""
+    batch_data = {
+        "movers_count": len(movers),
+        "threshold_pct": 2.0,
+        "movers": movers,
+    }
+    messages = [{"role": "user", "content": build_prompt(batch_data)}]
+
+    response = _call_api(client, messages)
+    while response.stop_reason == "pause_turn":
+        messages = [
+            {"role": "user", "content": build_prompt(batch_data)},
+            {"role": "assistant", "content": response.content},
+        ]
+        response = _call_api(client, messages)
+
+    return _extract_json(response)
+
+
+def generate_report(movers_data: dict) -> dict:
+    client = anthropic.Anthropic()
+    movers = movers_data.get("movers", [])
+    date = movers[0]["date"] if movers else ""
+
+    # Split movers by market and process in separate API calls
+    markets = {}
+    for m in movers:
+        market = m.get("market", "Other")
+        markets.setdefault(market, []).append(m)
+
+    all_movers = []
+    summary = ""
+
+    for market in ["Nordic", "Europe", "US"]:
+        batch = markets.get(market, [])
+        if not batch:
+            continue
+
+        print(f"  Analyzing {market} ({len(batch)} movers)...")
+        result = _analyze_market_batch(client, batch, date)
+
+        if not summary and result.get("summary"):
+            summary = result["summary"]
+        all_movers.extend(result.get("movers", []))
+
+        # Brief pause between batches to avoid rate limits
+        if market != "US":
+            time.sleep(5)
+
+    return {"summary": summary, "movers": all_movers}
 
 
 def save_report_to_gist(report: dict, date: str, gist_id: str):
