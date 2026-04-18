@@ -198,7 +198,9 @@ def _send_push_notifications(title: str, body: str):
                 _save_push_subs(subs)
                 print(f"Removed expired subscription: {sub['endpoint'][:50]}...")
             else:
-                print(f"Push failed: {e}")
+                print(f"Push failed for {sub['endpoint'][:50]}: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # --- Startup ---
@@ -345,11 +347,16 @@ def trigger_push(request_body: dict, x_api_key: str = Header(default=None)):
     _verify_api_key(x_api_key)
     # Invalidate reports cache so next read picks up the new report
     _reports_cache["data"] = None
-    _send_push_notifications(
-        title=request_body.get("title", "Porteføljerapport"),
-        body=request_body.get("body", "Ny rapport er klar"),
-    )
-    return {"status": "ok"}
+    try:
+        _send_push_notifications(
+            title=request_body.get("title", "Porteføljerapport"),
+            body=request_body.get("body", "Ny rapport er klar"),
+        )
+        return {"status": "ok"}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "detail": str(e)}
 
 
 # --- Push subscription endpoints ---
