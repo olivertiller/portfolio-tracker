@@ -206,9 +206,16 @@ datePicker.addEventListener("change", () => {
     }
 });
 
-// --- Push notifications (auto-subscribe) ---
+// --- Push notifications ---
 
 async function initPush() {
+    // Check if running inside Capacitor (native app)
+    if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        initNativePush();
+        return;
+    }
+
+    // Web Push fallback (for browser access)
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
 
     try {
@@ -226,14 +233,39 @@ async function initPush() {
             });
         }
 
-        // Always re-register to ensure server has the subscription
         await fetch("/api/push/subscribe", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(sub.toJSON()),
         });
     } catch (e) {
-        console.error("Push setup failed:", e);
+        console.error("Web push setup failed:", e);
+    }
+}
+
+async function initNativePush() {
+    try {
+        const { PushNotifications } = await import("https://esm.sh/@capacitor/push-notifications");
+
+        const permission = await PushNotifications.requestPermissions();
+        if (permission.receive !== "granted") return;
+
+        await PushNotifications.register();
+
+        PushNotifications.addListener("registration", async (token) => {
+            console.log("APNs token:", token.value);
+            await fetch("/api/push/subscribe", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ endpoint: "apns", token: token.value }),
+            });
+        });
+
+        PushNotifications.addListener("registrationError", (err) => {
+            console.error("Push registration failed:", err);
+        });
+    } catch (e) {
+        console.error("Native push setup failed:", e);
     }
 }
 

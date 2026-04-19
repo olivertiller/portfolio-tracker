@@ -372,10 +372,12 @@ def vapid_key():
 
 @app.post("/api/push/subscribe")
 def subscribe(subscription: dict):
-    if not subscription.get("endpoint"):
+    if not subscription.get("endpoint") and not subscription.get("token"):
         raise HTTPException(status_code=400, detail="Invalid subscription")
     subs = _load_push_subs()
-    subs = [s for s in subs if s["endpoint"] != subscription["endpoint"]]
+    # Deduplicate by endpoint or APNs token
+    key = subscription.get("token") or subscription.get("endpoint")
+    subs = [s for s in subs if (s.get("token") or s.get("endpoint")) != key]
     subs.append(subscription)
     _save_push_subs(subs)
     return {"status": "subscribed"}

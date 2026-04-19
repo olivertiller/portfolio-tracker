@@ -1,0 +1,30 @@
+{
+  "name": "portfolio-tracker",
+  "version": "1.0.0",
+  "description": "Lightweight API that returns daily price changes for a personal stock portfolio using yfinance. Designed to be fetched by Claude for daily portfolio news summaries.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/olivertiller/portfolio-tracker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/olivertiller/portfolio-tracker/issues"
+  },
+  "homepage": "https://github.com/olivertiller/portfolio-tracker#readme",
+  "dependencies": {
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/ios": "^8.3.1",
+    "@capacitor/push-notifications": "^8.0.3"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}
