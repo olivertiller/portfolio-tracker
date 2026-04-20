@@ -83,8 +83,12 @@ def main():
 
     filename = f"movers_{portfolio_id}.json"
     subprocess.run(
-        ["gh", "gist", "edit", gist_id, "--filename", filename, tmp_path],
+        [
+            "gh", "api", "--method", "PATCH", f"/gists/{gist_id}",
+            "-f", f"files[{filename}][content]={json_str}",
+        ],
         check=True,
+        capture_output=True,
     )
     print(f"Gist updated: https://gist.github.com/{gist_id}")
 
