@@ -143,6 +143,18 @@ def get_daily_changes(portfolio: str = "private", refresh: bool = False):
             if result is not None:
                 results.append(result)
 
+    # Filter out stocks with stale dates
+    dates = {}
+    for r in results:
+        d = r.get("date")
+        if d:
+            dates.setdefault(d, []).append(r["ticker"])
+    if len(dates) > 1:
+        expected_date = max(dates, key=lambda d: len(dates[d]))
+        stale_tickers = {t for d, tickers in dates.items() if d != expected_date for t in tickers}
+        results = [r for r in results if r["ticker"] not in stale_tickers]
+        print(f"Filtered {len(stale_tickers)} stocks with stale data (expected {expected_date})")
+
     results.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
 
     with _cache_lock:

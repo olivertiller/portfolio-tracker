@@ -58,6 +58,29 @@ def main():
 
     results.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
 
+    # Validate date consistency — all stocks should report the same trading day
+    dates = {}
+    for r in results:
+        d = r.get("date", "unknown")
+        dates.setdefault(d, []).append(r["ticker"])
+
+    if len(dates) > 1:
+        # Use the most common date as the expected trading day
+        expected_date = max(dates, key=lambda d: len(dates[d]))
+        stale = {d: tickers for d, tickers in dates.items() if d != expected_date}
+        print(f"WARNING: Date mismatch detected. Expected {expected_date}, but got stale data:")
+        for d, tickers in stale.items():
+            print(f"  {d}: {', '.join(tickers)}")
+
+        # Filter out stocks with stale dates
+        stale_tickers = {t for tickers in stale.values() for t in tickers}
+        results = [r for r in results if r["ticker"] not in stale_tickers]
+        print(f"Excluded {len(stale_tickers)} stocks with stale data, {len(results)} remaining")
+
+        if not results:
+            print("ERROR: No stocks with current data. Aborting.")
+            sys.exit(1)
+
     movers = [s for s in results if abs(s["change_pct"]) >= THRESHOLD]
     calm = [s for s in results if abs(s["change_pct"]) < THRESHOLD]
 
