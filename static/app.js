@@ -214,7 +214,8 @@ async function initPush() {
         try {
             const { StatusBar, Style } = await import("https://esm.sh/@capacitor/status-bar");
             await StatusBar.setOverlaysWebView({ overlay: false });
-            await StatusBar.setStyle({ style: Style.Light });
+            await StatusBar.setStyle({ style: Style.Dark });
+            await StatusBar.setBackgroundColor({ color: "#ffffff" });
         } catch (e) {
             console.error("StatusBar setup failed:", e);
         }
