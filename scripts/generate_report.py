@@ -32,10 +32,9 @@ JSON schema:
 Rules for the explanation field:
 - Focus on WHY the stock moved — the catalyst only
 - Never include company descriptions, history, sector overview, or background
-- When you find confirmed news: set confirmed=true, cite the source
-- When no confirmed news: set confirmed=false, give the most plausible driver (sector trends, macro spillover, peer moves)
-- When nothing plausible: "No confirmed catalyst. Likely followed the broad market rally."
-- Macro/sector context IS useful when it explains the move
+- confirmed=true ONLY for hard news published on that specific trading day: earnings releases, contract wins, analyst upgrades/downgrades, regulatory decisions, M&A, profit warnings, etc.
+- confirmed=false for everything else: pre-earnings positioning, "digesting" older news, sector spillovers, macro-driven moves, general sentiment
+- When nothing plausible: "No confirmed catalyst. Likely followed the broad market."
 - Max 1-2 sentences per stock
 
 Order movers by market: Nordic first, then Europe, then US."""

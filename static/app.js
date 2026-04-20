@@ -104,7 +104,7 @@ function renderReport(data) {
             const pctStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
             const tag = m.confirmed
                 ? `<span class="tag tag-confirmed">Bekreftet</span>`
-                : `<span class="tag tag-likely">Sannsynlig</span>`;
+                : ``;
 
             let spark = "";
             if (sparklineData && sparklineData[m.ticker]) {
