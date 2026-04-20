@@ -36,23 +36,18 @@ DEFAULT_PORTFOLIO = {
     "RIVN":    {"name": "Rivian Automotive", "market": "US"},
     "VRT":     {"name": "Vertiv Holdings", "market": "US"},
     # Europe-listed
-    "OR.PA":   {"name": "L'Oréal", "market": "Europe"},
-    "MC.PA":   {"name": "LVMH", "market": "Europe"},
-    "BMW.DE":  {"name": "BMW", "market": "Europe"},
     "ENR.DE":  {"name": "Siemens Energy", "market": "Europe"},
     # Oslo Børs
     "AKER.OL":  {"name": "Aker", "market": "Nordic"},
     "GJF.OL":   {"name": "Gjensidige Forsikring", "market": "Nordic"},
-    "KCC.OL":   {"name": "Klaveness Combination Carriers", "market": "Nordic"},
     "KID.OL":   {"name": "KID", "market": "Nordic"},
     "KIT.OL":   {"name": "Kitron", "market": "Nordic"},
     "KOMPL.OL": {"name": "Komplett", "market": "Nordic"},
     "KOG.OL":   {"name": "Kongsberg Gruppen", "market": "Nordic"},
     "NOD.OL":   {"name": "Nordic Semiconductor", "market": "Nordic"},
     "NHY.OL":   {"name": "Norsk Hydro", "market": "Nordic"},
+    "NORBIT.OL": {"name": "NORBIT", "market": "Nordic"},
     "PARB.OL":  {"name": "Pareto Bank", "market": "Nordic"},
-    "SALM.OL":  {"name": "SalMar", "market": "Nordic"},
-    "TEL.OL":   {"name": "Telenor", "market": "Nordic"},
     "VEND.OL":  {"name": "Vend Marketplaces", "market": "Nordic"},
 }
 
