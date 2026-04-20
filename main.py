@@ -431,6 +431,18 @@ def sparklines(portfolio: str = Query(default="private")):
     return result
 
 
-# --- Static files (must be last) ---
+# --- Static files with no-cache headers (must be last) ---
+
+from starlette.responses import Response
+
+
+@app.middleware("http")
+async def no_cache_static(request, call_next):
+    response = await call_next(request)
+    if request.url.path.endswith((".html", ".js", ".css")) or request.url.path == "/":
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
