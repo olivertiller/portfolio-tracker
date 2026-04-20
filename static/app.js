@@ -3,6 +3,7 @@ const datePicker = document.getElementById("date-picker");
 const reportMeta = document.getElementById("report-meta");
 
 let sparklineData = null;
+let currentPortfolio = localStorage.getItem("portfolio") || "private";
 
 function esc(s) {
     if (!s) return "";
@@ -130,7 +131,7 @@ function renderReport(data) {
 
 async function fetchSparklines() {
     try {
-        const res = await fetch("/api/sparklines");
+        const res = await fetch(`/api/sparklines?portfolio=${currentPortfolio}`);
         if (res.ok) sparklineData = await res.json();
     } catch (e) {
         console.error("Failed to fetch sparklines:", e);
@@ -139,7 +140,7 @@ async function fetchSparklines() {
 
 async function fetchLatestReport() {
     try {
-        const res = await fetch("/api/report");
+        const res = await fetch(`/api/report?portfolio=${currentPortfolio}`);
         if (res.status === 404) {
             reportContent.innerHTML = '<div class="loading">Ingen rapporter enn\u00e5.</div>';
             return;
@@ -155,7 +156,7 @@ async function fetchLatestReport() {
 async function fetchReportByDate(date) {
     try {
         reportContent.innerHTML = '<div class="loading">Henter rapport...</div>';
-        const res = await fetch(`/api/report/${date}`);
+        const res = await fetch(`/api/report/${date}?portfolio=${currentPortfolio}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         showReport(data);
@@ -166,7 +167,7 @@ async function fetchReportByDate(date) {
 
 async function fetchReportHistory() {
     try {
-        const res = await fetch("/api/reports");
+        const res = await fetch(`/api/reports?portfolio=${currentPortfolio}`);
         if (!res.ok) return;
         const reports = await res.json();
         datePicker.innerHTML = "";
@@ -307,6 +308,25 @@ sparklineToggle.addEventListener("click", () => {
 if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("/sw.js");
 }
+
+// --- Portfolio toggle ---
+
+document.querySelectorAll(".toggle-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const id = btn.id.replace("btn-", "");
+        if (id === currentPortfolio) return;
+        currentPortfolio = id;
+        localStorage.setItem("portfolio", id);
+        document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        reportContent.innerHTML = '<div class="loading">Henter rapport...</div>';
+        init();
+    });
+});
+
+// Set correct toggle on load
+document.querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+document.getElementById(`btn-${currentPortfolio}`)?.classList.add("active");
 
 // --- Init ---
 

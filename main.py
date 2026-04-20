@@ -8,6 +8,7 @@ import threading
 import json
 import os
 import requests as http_requests
+from portfolios import PORTFOLIOS
 
 app = FastAPI(title="Portfolio Daily Movers")
 
@@ -18,45 +19,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+VALID_PORTFOLIOS = list(PORTFOLIOS.keys())
+
 
 def _env(key, default=""):
     return os.environ.get(key, default)
 
 
-GIST_ID = os.environ.get("GIST_ID", "24236a25d105c46c64f122e4d60e12d6")
+def _validate_portfolio(portfolio: str) -> str:
+    if portfolio not in VALID_PORTFOLIOS:
+        raise HTTPException(status_code=400, detail=f"Invalid portfolio: {portfolio}")
+    return portfolio
 
-DEFAULT_PORTFOLIO = {
-    # US-listed
-    "AMZN":    {"name": "Amazon", "market": "US"},
-    "BRK-B":   {"name": "Berkshire Hathaway B", "market": "US"},
-    "META":    {"name": "Meta Platforms", "market": "US"},
-    "MSFT":    {"name": "Microsoft", "market": "US"},
-    "NVT":     {"name": "nVent Electric", "market": "US"},
-    "RCL":     {"name": "Royal Caribbean Cruises", "market": "US"},
-    "RIVN":    {"name": "Rivian Automotive", "market": "US"},
-    "VRT":     {"name": "Vertiv Holdings", "market": "US"},
-    # Europe-listed
-    "ENR.DE":  {"name": "Siemens Energy", "market": "Europe"},
-    # Oslo Børs
-    "AKER.OL":  {"name": "Aker", "market": "Nordic"},
-    "GJF.OL":   {"name": "Gjensidige Forsikring", "market": "Nordic"},
-    "KID.OL":   {"name": "KID", "market": "Nordic"},
-    "KIT.OL":   {"name": "Kitron", "market": "Nordic"},
-    "KOMPL.OL": {"name": "Komplett", "market": "Nordic"},
-    "KOG.OL":   {"name": "Kongsberg Gruppen", "market": "Nordic"},
-    "NOD.OL":   {"name": "Nordic Semiconductor", "market": "Nordic"},
-    "NHY.OL":   {"name": "Norsk Hydro", "market": "Nordic"},
-    "NORBIT.OL": {"name": "NORBIT", "market": "Nordic"},
-    "PARB.OL":  {"name": "Pareto Bank", "market": "Nordic"},
-    "VEND.OL":  {"name": "Vend Marketplaces", "market": "Nordic"},
-}
+
+GIST_ID = os.environ.get("GIST_ID", "24236a25d105c46c64f122e4d60e12d6")
 
 CACHE_TTL = timedelta(minutes=15)
 _cache_lock = threading.Lock()
-_cache = {"data": None, "timestamp": None}
+_cache = {}  # keyed by portfolio id
 
 # Reports cache (fetched from GitHub Gist)
-_reports_cache = {"data": None, "timestamp": None}
+_reports_cache = {}  # keyed by portfolio id
 REPORTS_CACHE_TTL = timedelta(minutes=5)
 
 
@@ -64,14 +47,16 @@ def _now():
     return datetime.now(timezone.utc)
 
 
-def _fetch_reports_from_gist() -> list[dict]:
-    """Fetch reports.json from the public GitHub Gist."""
+def _fetch_reports_from_gist(portfolio: str = "private") -> list[dict]:
+    """Fetch reports for a portfolio from the public GitHub Gist."""
     now = _now()
+    cached = _reports_cache.get(portfolio)
     if (
-        _reports_cache["data"] is not None
-        and now - _reports_cache["timestamp"] < REPORTS_CACHE_TTL
+        cached is not None
+        and cached["data"] is not None
+        and now - cached["timestamp"] < REPORTS_CACHE_TTL
     ):
-        return _reports_cache["data"]
+        return cached["data"]
 
     try:
         resp = http_requests.get(
@@ -83,22 +68,26 @@ def _fetch_reports_from_gist() -> list[dict]:
         gist = resp.json()
         files = gist.get("files", {})
 
-        if "reports.json" not in files:
-            _reports_cache["data"] = []
-            _reports_cache["timestamp"] = now
+        # Try portfolio-specific file, fall back to reports.json for private
+        filename = f"reports_{portfolio}.json"
+        if filename not in files and portfolio == "private" and "reports.json" in files:
+            filename = "reports.json"
+
+        if filename not in files:
+            _reports_cache[portfolio] = {"data": [], "timestamp": now}
             return []
 
-        content = files["reports.json"].get("content", "[]")
+        content = files[filename].get("content", "[]")
         reports = json.loads(content)
         reports.sort(key=lambda r: r.get("date", ""), reverse=True)
 
-        _reports_cache["data"] = reports
-        _reports_cache["timestamp"] = now
+        _reports_cache[portfolio] = {"data": reports, "timestamp": now}
         return reports
     except Exception as e:
         print(f"Failed to fetch reports from gist: {e}")
-        if _reports_cache["data"] is not None:
-            return _reports_cache["data"]
+        cached = _reports_cache.get(portfolio)
+        if cached and cached["data"] is not None:
+            return cached["data"]
         return []
 
 
@@ -131,19 +120,22 @@ def _fetch_single(ticker: str, info: dict) -> dict:
         }
 
 
-def get_daily_changes(refresh: bool = False):
+def get_daily_changes(portfolio: str = "private", refresh: bool = False):
+    stocks = PORTFOLIOS[portfolio]["stocks"]
     with _cache_lock:
+        cached = _cache.get(portfolio)
         if (
             not refresh
-            and _cache["data"] is not None
-            and _now() - _cache["timestamp"] < CACHE_TTL
+            and cached is not None
+            and cached["data"] is not None
+            and _now() - cached["timestamp"] < CACHE_TTL
         ):
-            return _cache["data"]
+            return cached["data"]
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(_fetch_single, ticker, info): ticker
-            for ticker, info in DEFAULT_PORTFOLIO.items()
+            for ticker, info in stocks.items()
         }
         results = []
         for future in futures:
@@ -154,8 +146,7 @@ def get_daily_changes(refresh: bool = False):
     results.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
 
     with _cache_lock:
-        _cache["data"] = results
-        _cache["timestamp"] = _now()
+        _cache[portfolio] = {"data": results, "timestamp": _now()}
 
     return results
 
@@ -267,8 +258,12 @@ def health():
 
 
 @app.get("/api/portfolio")
-def portfolio(refresh: bool = Query(default=False, description="Bypass cache")):
-    changes = get_daily_changes(refresh=refresh)
+def portfolio(
+    portfolio: str = Query(default="private"),
+    refresh: bool = Query(default=False, description="Bypass cache"),
+):
+    _validate_portfolio(portfolio)
+    changes = get_daily_changes(portfolio=portfolio, refresh=refresh)
     return {
         "generated_at": _now().isoformat(),
         "count": len(changes),
@@ -278,10 +273,12 @@ def portfolio(refresh: bool = Query(default=False, description="Bypass cache")):
 
 @app.get("/api/movers")
 def movers(
+    portfolio: str = Query(default="private"),
     threshold: float = Query(default=2.0, description="Min absolute % change"),
     refresh: bool = Query(default=False, description="Bypass cache"),
 ):
-    changes = get_daily_changes(refresh=refresh)
+    _validate_portfolio(portfolio)
+    changes = get_daily_changes(portfolio=portfolio, refresh=refresh)
     significant = [s for s in changes if abs(s.get("change_pct", 0)) >= threshold]
     calm = [s for s in changes if abs(s.get("change_pct", 0)) < threshold and "error" not in s]
 
@@ -297,7 +294,7 @@ def movers(
 # Keep old endpoints working
 @app.get("/portfolio")
 def portfolio_compat(refresh: bool = Query(default=False)):
-    return portfolio(refresh=refresh)
+    return portfolio(portfolio="private", refresh=refresh)
 
 
 @app.get("/movers")
@@ -305,14 +302,15 @@ def movers_compat(
     threshold: float = Query(default=2.0),
     refresh: bool = Query(default=False),
 ):
-    return movers(threshold=threshold, refresh=refresh)
+    return movers(portfolio="private", threshold=threshold, refresh=refresh)
 
 
 # --- Report endpoints (read from Gist) ---
 
 @app.get("/api/report")
-def latest_report():
-    reports = _fetch_reports_from_gist()
+def latest_report(portfolio: str = Query(default="private")):
+    _validate_portfolio(portfolio)
+    reports = _fetch_reports_from_gist(portfolio)
     if not reports:
         raise HTTPException(status_code=404, detail="No reports yet")
     return reports[0]
@@ -320,10 +318,12 @@ def latest_report():
 
 @app.get("/api/reports")
 def list_reports(
+    portfolio: str = Query(default="private"),
     limit: int = Query(default=30),
     offset: int = Query(default=0),
 ):
-    reports = _fetch_reports_from_gist()
+    _validate_portfolio(portfolio)
+    reports = _fetch_reports_from_gist(portfolio)
     return [
         {"date": r.get("date", ""), "created_at": r.get("created_at", "")}
         for r in reports[offset:offset + limit]
@@ -331,8 +331,9 @@ def list_reports(
 
 
 @app.get("/api/report/{date}")
-def report_by_date(date: str):
-    reports = _fetch_reports_from_gist()
+def report_by_date(date: str, portfolio: str = Query(default="private")):
+    _validate_portfolio(portfolio)
+    reports = _fetch_reports_from_gist(portfolio)
     for r in reports:
         if r.get("date") == date:
             return r
@@ -343,7 +344,7 @@ def report_by_date(date: str):
 @app.post("/api/push/notify")
 def trigger_push(request_body: dict, x_api_key: str = Header(default=None)):
     _verify_api_key(x_api_key)
-    _reports_cache["data"] = None
+    _reports_cache.clear()
     try:
         _send_push_notifications(
             title=request_body.get("title", "Porteføljerapport"),
@@ -390,19 +391,23 @@ def unsubscribe(body: dict):
 
 # --- Sparkline data ---
 
-_sparkline_cache = {"data": None, "timestamp": None}
+_sparkline_cache = {}  # keyed by portfolio id
 SPARKLINE_TTL = timedelta(hours=1)
 
 
 @app.get("/api/sparklines")
-def sparklines():
+def sparklines(portfolio: str = Query(default="private")):
+    _validate_portfolio(portfolio)
     now = _now()
+    cached = _sparkline_cache.get(portfolio)
     if (
-        _sparkline_cache["data"] is not None
-        and now - _sparkline_cache["timestamp"] < SPARKLINE_TTL
+        cached is not None
+        and cached["data"] is not None
+        and now - cached["timestamp"] < SPARKLINE_TTL
     ):
-        return _sparkline_cache["data"]
+        return cached["data"]
 
+    stocks = PORTFOLIOS[portfolio]["stocks"]
     result = {}
 
     def fetch_sparkline(ticker):
@@ -417,13 +422,12 @@ def sparklines():
             return ticker, []
 
     with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = [executor.submit(fetch_sparkline, t) for t in DEFAULT_PORTFOLIO]
+        futures = [executor.submit(fetch_sparkline, t) for t in stocks]
         for f in futures:
             ticker, prices = f.result()
             result[ticker] = prices
 
-    _sparkline_cache["data"] = result
-    _sparkline_cache["timestamp"] = now
+    _sparkline_cache[portfolio] = {"data": result, "timestamp": now}
     return result
 
 

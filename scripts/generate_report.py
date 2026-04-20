@@ -154,16 +154,26 @@ def generate_report(movers_data: dict) -> dict:
     return {"summary": summary, "movers": all_movers}
 
 
-def save_report_to_gist(report: dict, date: str, gist_id: str):
+def save_report_to_gist(report: dict, date: str, gist_id: str, portfolio_id: str = "private"):
     """Read existing reports from gist, append new report, write back."""
+    filename = f"reports_{portfolio_id}.json"
     existing = []
+
+    # Try portfolio-specific file first, fall back to reports.json for private
     try:
         result = subprocess.run(
-            ["gh", "gist", "view", gist_id, "--filename", "reports.json"],
+            ["gh", "gist", "view", gist_id, "--filename", filename],
             capture_output=True, text=True,
         )
         if result.returncode == 0 and result.stdout.strip():
             existing = json.loads(result.stdout)
+        elif portfolio_id == "private":
+            result = subprocess.run(
+                ["gh", "gist", "view", gist_id, "--filename", "reports.json"],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                existing = json.loads(result.stdout)
     except (json.JSONDecodeError, Exception) as e:
         print(f"Could not read existing reports: {e}")
 
@@ -186,21 +196,21 @@ def save_report_to_gist(report: dict, date: str, gist_id: str):
     subprocess.run(
         [
             "gh", "api", "--method", "PATCH", f"/gists/{gist_id}",
-            "-f", f"files[reports.json][content]={content}",
+            "-f", f"files[{filename}][content]={content}",
         ],
         check=True,
         capture_output=True,
     )
-    print(f"Report saved to gist for {date}")
+    print(f"Report saved to gist ({filename}) for {date}")
 
 
-def notify_app(api_url: str, api_secret: str, date: str):
+def notify_app(api_url: str, api_secret: str, date: str, portfolio_name: str):
     """Tell the Railway app to send push notifications."""
     import requests
     try:
         resp = requests.post(
             f"{api_url}/api/push/notify",
-            json={"title": "Porteføljerapport", "body": f"Ny rapport for {date} er klar"},
+            json={"title": f"{portfolio_name}-rapport", "body": f"Ny rapport for {date} er klar"},
             headers={"X-API-Key": api_secret},
             timeout=10,
         )
@@ -211,15 +221,26 @@ def notify_app(api_url: str, api_secret: str, date: str):
 
 
 def main():
-    movers_path = "/tmp/movers.json"
+    import argparse
+    sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+    from portfolios import PORTFOLIOS
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--portfolio", default="private", choices=list(PORTFOLIOS.keys()))
+    args = parser.parse_args()
+
+    portfolio_id = args.portfolio
+    portfolio_name = PORTFOLIOS[portfolio_id]["name"]
+
+    movers_path = f"/tmp/movers_{portfolio_id}.json"
     if not os.path.exists(movers_path):
-        print("No movers.json found. Run update_gist.py first.")
+        print(f"No {movers_path} found. Run update_gist.py --portfolio {portfolio_id} first.")
         sys.exit(1)
 
     with open(movers_path) as f:
         movers_data = json.load(f)
 
-    print(f"Generating report for {movers_data['movers_count']} movers...")
+    print(f"Generating {portfolio_name} report for {movers_data['movers_count']} movers...")
     report = generate_report(movers_data)
     date = movers_data["movers"][0]["date"] if movers_data["movers"] else datetime.now().strftime("%Y-%m-%d")
 
@@ -230,13 +251,13 @@ def main():
         print("\nNo GIST_ID set, skipping publish")
         return
 
-    save_report_to_gist(report, date, gist_id)
+    save_report_to_gist(report, date, gist_id, portfolio_id)
 
     # Trigger push notifications via the app
     api_url = os.environ.get("API_URL")
     api_secret = os.environ.get("API_SECRET")
     if api_url and api_secret:
-        notify_app(api_url, api_secret, date)
+        notify_app(api_url, api_secret, date, portfolio_name)
 
 
 if __name__ == "__main__":

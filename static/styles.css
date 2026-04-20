@@ -38,10 +38,30 @@ header {
     gap: 12px;
 }
 
-header h1 {
-    font-size: 1.1rem;
-    font-weight: 600;
-    white-space: nowrap;
+.portfolio-toggle {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.toggle-btn {
+    background: var(--bg);
+    border: none;
+    padding: 6px 14px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.toggle-btn + .toggle-btn {
+    border-left: 1px solid var(--border);
+}
+
+.toggle-btn.active {
+    background: var(--accent);
+    color: #fff;
 }
 
 .header-controls {

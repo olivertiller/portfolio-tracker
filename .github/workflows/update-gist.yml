@@ -1,7 +1,16 @@
 name: Daily portfolio report
 
 on:
-  workflow_dispatch: # Triggered by cron-job.org at 22:15 Oslo time
+  workflow_dispatch:
+    inputs:
+      portfolio:
+        description: "Portfolio to generate report for"
+        required: true
+        default: "private"
+        type: choice
+        options:
+          - private
+          - pmax
 
 jobs:
   report:
@@ -20,7 +29,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: "24236a25d105c46c64f122e4d60e12d6"
-        run: python scripts/update_gist.py
+        run: python scripts/update_gist.py --portfolio ${{ inputs.portfolio }}
 
       - name: Generate report and publish
         env:
@@ -29,4 +38,4 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           API_URL: ${{ secrets.API_URL }}
           API_SECRET: ${{ secrets.API_SECRET }}
-        run: python scripts/generate_report.py
+        run: python scripts/generate_report.py --portfolio ${{ inputs.portfolio }}

@@ -1,40 +1,17 @@
 """Fetch portfolio movers and update a GitHub Gist with the results."""
 
+import argparse
 import json
 import os
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import yfinance as yf
 
-PORTFOLIO = {
-    "AMZN": {"name": "Amazon", "market": "US"},
-    "BRK-B": {"name": "Berkshire Hathaway B", "market": "US"},
-    "META": {"name": "Meta Platforms", "market": "US"},
-    "MSFT": {"name": "Microsoft", "market": "US"},
-    "NVT": {"name": "nVent Electric", "market": "US"},
-    "RCL": {"name": "Royal Caribbean Cruises", "market": "US"},
-    "RIVN": {"name": "Rivian Automotive", "market": "US"},
-    "VRT": {"name": "Vertiv Holdings", "market": "US"},
-    "OR.PA": {"name": "L'Oréal", "market": "Europe"},
-    "MC.PA": {"name": "LVMH", "market": "Europe"},
-    "BMW.DE": {"name": "BMW", "market": "Europe"},
-    "ENR.DE": {"name": "Siemens Energy", "market": "Europe"},
-    "AKER.OL": {"name": "Aker", "market": "Nordic"},
-    "GJF.OL": {"name": "Gjensidige Forsikring", "market": "Nordic"},
-    "KCC.OL": {"name": "Klaveness Combination Carriers", "market": "Nordic"},
-    "KID.OL": {"name": "KID", "market": "Nordic"},
-    "KIT.OL": {"name": "Kitron", "market": "Nordic"},
-    "KOMPL.OL": {"name": "Komplett", "market": "Nordic"},
-    "KOG.OL": {"name": "Kongsberg Gruppen", "market": "Nordic"},
-    "NOD.OL": {"name": "Nordic Semiconductor", "market": "Nordic"},
-    "NHY.OL": {"name": "Norsk Hydro", "market": "Nordic"},
-    "PARB.OL": {"name": "Pareto Bank", "market": "Nordic"},
-    "SALM.OL": {"name": "SalMar", "market": "Nordic"},
-    "TEL.OL": {"name": "Telenor", "market": "Nordic"},
-    "VEND.OL": {"name": "Vend Marketplaces", "market": "Nordic"},
-}
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from portfolios import PORTFOLIOS
 
 THRESHOLD = 2.0
 
@@ -63,10 +40,18 @@ def fetch_single(ticker: str, info: dict) -> dict | None:
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--portfolio", default="private", choices=list(PORTFOLIOS.keys()))
+    args = parser.parse_args()
+
+    portfolio_id = args.portfolio
+    stocks = PORTFOLIOS[portfolio_id]["stocks"]
+    print(f"Fetching movers for portfolio: {portfolio_id} ({len(stocks)} stocks)")
+
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {
             executor.submit(fetch_single, ticker, info): ticker
-            for ticker, info in PORTFOLIO.items()
+            for ticker, info in stocks.items()
         }
         raw = [f.result() for f in futures]
         results = [r for r in raw if r is not None]
@@ -92,12 +77,13 @@ def main():
         print("No GIST_ID set, skipping gist update")
         return
 
-    tmp_path = "/tmp/movers.json"
+    tmp_path = f"/tmp/movers_{portfolio_id}.json"
     with open(tmp_path, "w") as f:
         f.write(json_str)
 
+    filename = f"movers_{portfolio_id}.json"
     subprocess.run(
-        ["gh", "gist", "edit", gist_id, "--filename", "movers.json", tmp_path],
+        ["gh", "gist", "edit", gist_id, "--filename", filename, tmp_path],
         check=True,
     )
     print(f"Gist updated: https://gist.github.com/{gist_id}")
