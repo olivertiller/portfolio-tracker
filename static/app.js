@@ -211,6 +211,13 @@ datePicker.addEventListener("change", () => {
 async function initPush() {
     // Check if running inside Capacitor (native app)
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
+        try {
+            const { StatusBar, Style } = await import("https://esm.sh/@capacitor/status-bar");
+            await StatusBar.setOverlaysWebView({ overlay: false });
+            await StatusBar.setStyle({ style: Style.Light });
+        } catch (e) {
+            console.error("StatusBar setup failed:", e);
+        }
         initNativePush();
         return;
     }
