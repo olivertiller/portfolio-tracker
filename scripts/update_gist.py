@@ -58,28 +58,32 @@ def main():
 
     results.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
 
-    # Validate date consistency — all stocks should report the same trading day
-    dates = {}
-    for r in results:
-        d = r.get("date", "unknown")
-        dates.setdefault(d, []).append(r["ticker"])
+    # Validate data freshness — data date must be today or previous business day
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    data_dates = set(r.get("date") for r in results if r.get("date"))
+    most_common_date = max(data_dates, key=lambda d: sum(1 for r in results if r.get("date") == d)) if data_dates else None
 
-    if len(dates) > 1:
-        # Use the most common date as the expected trading day
-        expected_date = max(dates, key=lambda d: len(dates[d]))
-        stale = {d: tickers for d, tickers in dates.items() if d != expected_date}
-        print(f"WARNING: Date mismatch detected. Expected {expected_date}, but got stale data:")
+    if most_common_date:
+        from datetime import date as date_type
+        data_date = date_type.fromisoformat(most_common_date)
+        today_date = date_type.fromisoformat(today)
+        days_old = (today_date - data_date).days
+
+        # Allow max 1 day old on weekdays, 3 on Mondays (weekend gap)
+        max_age = 3 if today_date.weekday() == 0 else 1
+        if days_old > max_age:
+            print(f"ERROR: Data is {days_old} days old (data: {most_common_date}, today: {today}). Aborting.")
+            print("Yahoo Finance likely has stale data. Try again later.")
+            sys.exit(1)
+
+    # Filter out stocks with inconsistent dates
+    if len(data_dates) > 1:
+        stale = {d: [r["ticker"] for r in results if r.get("date") == d] for d in data_dates if d != most_common_date}
+        print(f"WARNING: Date mismatch. Expected {most_common_date}, excluding stale stocks:")
         for d, tickers in stale.items():
             print(f"  {d}: {', '.join(tickers)}")
-
-        # Filter out stocks with stale dates
-        stale_tickers = {t for tickers in stale.values() for t in tickers}
-        results = [r for r in results if r["ticker"] not in stale_tickers]
-        print(f"Excluded {len(stale_tickers)} stocks with stale data, {len(results)} remaining")
-
-        if not results:
-            print("ERROR: No stocks with current data. Aborting.")
-            sys.exit(1)
+        results = [r for r in results if r.get("date") == most_common_date]
+        print(f"{len(results)} stocks remaining")
 
     movers = [s for s in results if abs(s["change_pct"]) >= THRESHOLD]
     calm = [s for s in results if abs(s["change_pct"]) < THRESHOLD]
