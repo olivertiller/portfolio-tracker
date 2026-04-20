@@ -37,7 +37,7 @@ PORTFOLIOS = {
             "AKER.OL":    {"name": "Aker", "market": "Nordic"},
             "AUSS.OL":    {"name": "Austevoll Seafood", "market": "Nordic"},
             "PARB.OL":    {"name": "Pareto Bank", "market": "Nordic"},
-            "PROTCT.OL":  {"name": "Protector Forsikring", "market": "Nordic"},
+            "PROT.OL":    {"name": "Protector Forsikring", "market": "Nordic"},
             "SBNOR.OL":   {"name": "Sparebanken Norge", "market": "Nordic"},
             "NONG.OL":    {"name": "SpareBank 1 Nord-Norge", "market": "Nordic"},
             "STB.OL":     {"name": "Storebrand", "market": "Nordic"},
