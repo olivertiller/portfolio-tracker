@@ -51,9 +51,16 @@ def build_prompt(movers_data: dict) -> str:
         f"Trading date: {date}\n"
         f"Movers (±{movers_data['threshold_pct']}% or more):\n\n"
         f"{movers_json}\n\n"
-        f"For each mover, search for news published on {date} that explains the price movement. "
-        f"Use credible sources: Reuters, Bloomberg, FT for US/Europe. "
-        f"Newsweb (Oslo Børs), E24, Finansavisen, DN.no for Nordic stocks.\n\n"
+        f"For each mover, search for news published on {date} that explains the price movement.\n\n"
+        f"Search strategy (follow this order):\n"
+        f"1. Hard news: earnings, contracts, M&A, regulatory — Newsweb, Reuters, Bloomberg, FT\n"
+        f"2. Analyst rating changes: search for «[company] nedgradering», «[company] oppgradering», "
+        f"«[company] kursmål», «[company] downgrade/upgrade» on Finansavisen, E24, DN.no. "
+        f"Nordic brokers (Pareto, DNB Markets, Arctic, ABG, Carnegie, SpareBank1 Markets) "
+        f"are common catalysts for Nordic stocks.\n"
+        f"3. Sector/macro: broad market moves, sector rotation, commodity prices\n\n"
+        f"If a stock moved >4% and no hard catalyst is found, say so honestly. "
+        f"Do not construct speculative explanations.\n\n"
         f"Return ONLY the JSON object, no other text."
     )
 
@@ -133,6 +140,9 @@ def generate_report(movers_data: dict) -> dict:
 
     all_movers = []
     summary = ""
+
+    if not movers:
+        return {"summary": "Ingen aksjer svingte mer enn 2% i dag.", "movers": []}
 
     for market in ["Nordic", "Europe", "US"]:
         batch = markets.get(market, [])

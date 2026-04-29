@@ -212,14 +212,6 @@ datePicker.addEventListener("change", () => {
 async function initPush() {
     // Check if running inside Capacitor (native app)
     if (window.Capacitor && window.Capacitor.isNativePlatform()) {
-        try {
-            const { StatusBar, Style } = await import("https://esm.sh/@capacitor/status-bar");
-            await StatusBar.setOverlaysWebView({ overlay: false });
-            await StatusBar.setStyle({ style: Style.Dark });
-            await StatusBar.setBackgroundColor({ color: "#ffffff" });
-        } catch (e) {
-            console.error("StatusBar setup failed:", e);
-        }
         initNativePush();
         return;
     }
@@ -254,14 +246,18 @@ async function initPush() {
 
 async function initNativePush() {
     try {
-        const { PushNotifications } = await import("https://esm.sh/@capacitor/push-notifications");
+        const PushNotifications = window.Capacitor.Plugins.PushNotifications;
+        if (!PushNotifications) {
+            console.error("PushNotifications plugin not available");
+            return;
+        }
 
         const permission = await PushNotifications.requestPermissions();
         if (permission.receive !== "granted") return;
 
         await PushNotifications.register();
 
-        PushNotifications.addListener("registration", async (token) => {
+        await PushNotifications.addListener("registration", async (token) => {
             console.log("APNs token:", token.value);
             await fetch("/api/push/subscribe", {
                 method: "POST",
@@ -270,7 +266,7 @@ async function initNativePush() {
             });
         });
 
-        PushNotifications.addListener("registrationError", (err) => {
+        await PushNotifications.addListener("registrationError", (err) => {
             console.error("Push registration failed:", err);
         });
     } catch (e) {

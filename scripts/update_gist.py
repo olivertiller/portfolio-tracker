@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 import yfinance as yf
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from portfolios import PORTFOLIOS
+from server.portfolios import PORTFOLIOS
 
 THRESHOLD = 2.0
 

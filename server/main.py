@@ -7,8 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 import json
 import os
+import time
+import jwt
+import httpx
 import requests as http_requests
-from portfolios import PORTFOLIOS
+from server.portfolios import PORTFOLIOS
 
 app = FastAPI(title="Portfolio Daily Movers")
 
@@ -170,43 +173,97 @@ def _verify_api_key(x_api_key: str | None):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def _send_apns(token: str, title: str, body: str):
+    """Send a push notification via APNs using a .p8 key."""
+    key_id = _env("APNS_KEY_ID")
+    team_id = _env("APNS_TEAM_ID")
+    key_content = _env("APNS_KEY")
+    bundle_id = "com.olivertiller.portefolje"
+
+    if not all([key_id, team_id, key_content]):
+        print("APNs not configured (need APNS_KEY_ID, APNS_TEAM_ID, APNS_KEY)")
+        return False
+
+    # Build JWT for APNs auth
+    now = int(time.time())
+    payload = {"iss": team_id, "iat": now}
+    headers = {"alg": "ES256", "kid": key_id}
+    apns_token = jwt.encode(payload, key_content, algorithm="ES256", headers=headers)
+
+    apns_payload = {
+        "aps": {
+            "alert": {"title": title, "body": body},
+            "sound": "default",
+            "badge": 1,
+        }
+    }
+
+    url = f"https://api.push.apple.com/3/device/{token}"
+    with httpx.Client(http2=True) as client:
+        resp = client.post(
+            url,
+            json=apns_payload,
+            headers={
+                "authorization": f"bearer {apns_token}",
+                "apns-topic": bundle_id,
+                "apns-push-type": "alert",
+            },
+        )
+
+    if resp.status_code == 200:
+        print(f"APNs push sent to {token[:12]}...")
+        return True
+    elif resp.status_code in (400, 410):
+        print(f"APNs token invalid/expired ({resp.status_code}): {token[:12]}...")
+        return False
+    else:
+        print(f"APNs push failed ({resp.status_code}): {resp.text}")
+        return True  # don't remove token on transient errors
+
+
 def _send_push_notifications(title: str, body: str):
-    if not _env("VAPID_PRIVATE_KEY"):
-        print("VAPID keys not configured, skipping push")
-        return
-
-    try:
-        from pywebpush import webpush, WebPushException
-    except ImportError:
-        print("pywebpush not installed, skipping push")
-        return
-
-    try:
-        claims = json.loads(_env("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}'))
-    except json.JSONDecodeError:
-        print("VAPID_CLAIMS is not valid JSON, skipping push")
-        return
-
     subscriptions = _load_push_subs()
+    if not subscriptions:
+        print("No push subscribers")
+        return
+
     print(f"Sending push to {len(subscriptions)} subscribers")
+    removed = []
 
     for sub in subscriptions:
-        sub_info = {"endpoint": sub["endpoint"], "keys": sub.get("keys", {})}
+        apns_token = sub.get("token")
+        if apns_token:
+            ok = _send_apns(apns_token, title, body)
+            if not ok:
+                removed.append(sub)
+            continue
+
+        # Web push fallback
+        endpoint = sub.get("endpoint")
+        if not endpoint or not _env("VAPID_PRIVATE_KEY"):
+            continue
         try:
+            from pywebpush import webpush, WebPushException
+            claims = json.loads(_env("VAPID_CLAIMS", '{"sub": "mailto:admin@example.com"}'))
             webpush(
-                subscription_info=sub_info,
+                subscription_info={"endpoint": endpoint, "keys": sub.get("keys", {})},
                 data=json.dumps({"title": title, "body": body}),
                 vapid_private_key=_env("VAPID_PRIVATE_KEY"),
                 vapid_claims=claims,
             )
-        except WebPushException as e:
+        except Exception as e:
             resp = getattr(e, "response", None)
-            if resp and resp.status_code in (404, 410):
-                subs = [s for s in _load_push_subs() if s["endpoint"] != sub["endpoint"]]
-                _save_push_subs(subs)
-                print(f"Removed expired subscription: {sub['endpoint'][:50]}...")
+            if resp and getattr(resp, "status_code", 0) in (404, 410):
+                removed.append(sub)
             else:
-                print(f"Push failed for {sub['endpoint'][:50]}: {e}")
+                print(f"Web push failed: {e}")
+
+    if removed:
+        current = _load_push_subs()
+        removed_keys = {s.get("token") or s.get("endpoint") for s in removed}
+        current = [s for s in current if (s.get("token") or s.get("endpoint")) not in removed_keys]
+        _save_push_subs(current)
+        print(f"Removed {len(removed)} expired subscriptions")
 
 
 # --- Push subscription storage (in Gist, persists across deploys) ---
@@ -457,4 +514,6 @@ async def no_cache_static(request, call_next):
     return response
 
 
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+import pathlib
+_ROOT = pathlib.Path(__file__).resolve().parent.parent
+app.mount("/", StaticFiles(directory=str(_ROOT / "static"), html=True), name="static")

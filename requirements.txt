@@ -4,3 +4,5 @@ yfinance>=0.2.51
 pandas
 pywebpush
 requests
+PyJWT[crypto]
+httpx[http2]
