@@ -252,6 +252,9 @@ async function initNativePush() {
             return;
         }
 
+        // Clear badge when app is opened
+        await PushNotifications.removeAllDeliveredNotifications();
+
         const permission = await PushNotifications.requestPermissions();
         if (permission.receive !== "granted") return;
 
