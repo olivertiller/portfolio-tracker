@@ -8,8 +8,6 @@ import threading
 import json
 import os
 import time
-import jwt
-import httpx
 import requests as http_requests
 from server.portfolios import PORTFOLIOS
 
@@ -175,6 +173,9 @@ def _verify_api_key(x_api_key: str | None):
 
 def _send_apns(token: str, title: str, body: str):
     """Send a push notification via APNs using a .p8 key."""
+    import jwt
+    import httpx
+
     key_id = _env("APNS_KEY_ID")
     team_id = _env("APNS_TEAM_ID")
     key_content = _env("APNS_KEY")
