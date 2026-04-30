@@ -232,7 +232,7 @@ def notify_app(api_url: str, api_secret: str, date: str, portfolio_name: str):
 def main():
     import argparse
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from portfolios import PORTFOLIOS
+    from server.portfolios import PORTFOLIOS
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--portfolio", default="private", choices=list(PORTFOLIOS.keys()))
