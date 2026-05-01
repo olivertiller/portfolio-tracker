@@ -58,37 +58,22 @@ def main():
 
     results.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
 
-    # Validate data freshness — data date must be today or previous business day
+    # Report date = today (UTC). Only include stocks that traded today.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    data_dates = set(r.get("date") for r in results if r.get("date"))
-    most_common_date = max(data_dates, key=lambda d: sum(1 for r in results if r.get("date") == d)) if data_dates else None
-
-    if most_common_date:
-        from datetime import date as date_type
-        data_date = date_type.fromisoformat(most_common_date)
-        today_date = date_type.fromisoformat(today)
-        days_old = (today_date - data_date).days
-
-        # Allow max 1 day old on weekdays, 3 on Mondays (weekend gap)
-        max_age = 3 if today_date.weekday() == 0 else 1
-        if days_old > max_age:
-            print(f"ERROR: Data is {days_old} days old (data: {most_common_date}, today: {today}). Aborting.")
-            print("Yahoo Finance likely has stale data. Try again later.")
-            sys.exit(1)
-
-    # Filter out stocks with inconsistent dates
-    if len(data_dates) > 1:
-        stale = {d: [r["ticker"] for r in results if r.get("date") == d] for d in data_dates if d != most_common_date}
-        print(f"WARNING: Date mismatch. Expected {most_common_date}, excluding stale stocks:")
-        for d, tickers in stale.items():
-            print(f"  {d}: {', '.join(tickers)}")
-        results = [r for r in results if r.get("date") == most_common_date]
-        print(f"{len(results)} stocks remaining")
+    traded_today = [r for r in results if r.get("date") == today]
+    skipped = [r for r in results if r.get("date") != today]
+    if skipped:
+        print(f"Excluding {len(skipped)} stocks (market closed today):")
+        for r in skipped:
+            print(f"  {r['ticker']} (last traded {r.get('date')})")
+    results = traded_today
+    print(f"{len(results)} stocks traded today ({today})")
 
     movers = [s for s in results if abs(s["change_pct"]) >= THRESHOLD]
     calm = [s for s in results if abs(s["change_pct"]) < THRESHOLD]
 
     payload = {
+        "date": today,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "threshold_pct": THRESHOLD,
         "movers_count": len(movers),

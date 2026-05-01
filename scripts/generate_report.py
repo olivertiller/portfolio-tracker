@@ -262,7 +262,7 @@ def main():
 
     print(f"Generating {portfolio_name} report for {movers_data['movers_count']} movers...")
     report = generate_report(movers_data)
-    date = movers_data["movers"][0]["date"] if movers_data.get("movers") else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date = movers_data.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     print(json.dumps(report, indent=2))
 

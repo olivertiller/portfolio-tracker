@@ -3,13 +3,27 @@ const datePicker = document.getElementById("date-picker");
 const reportMeta = document.getElementById("report-meta");
 
 let sparklineData = null;
-let currentPortfolio = localStorage.getItem("portfolio") || "private";
+const VALID_PORTFOLIOS = ["private", "pmax"];
+let currentPortfolio = VALID_PORTFOLIOS.includes(localStorage.getItem("portfolio"))
+    ? localStorage.getItem("portfolio") : "private";
 
 function esc(s) {
     if (!s) return "";
     const d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
+}
+
+function formatDateHeading(dateStr) {
+    const d = new Date(dateStr + "T00:00:00");
+    const day = d.toLocaleDateString("nb-NO", { weekday: "long" });
+    const rest = d.toLocaleDateString("nb-NO", { day: "numeric", month: "long" });
+    return day.charAt(0).toUpperCase() + day.slice(1) + " " + rest;
+}
+
+function formatDateShort(dateStr) {
+    const [y, m, d] = dateStr.split("-");
+    return `${d}.${m}.${y}`;
 }
 
 const MARKET_LABELS = {
@@ -45,6 +59,7 @@ function buildSparklineSVG(prices) {
 
 function renderMarkdown(md) {
     md = md.replace(/\u{1F7E2}\s*/gu, "").replace(/\u{1F534}\s*/gu, "");
+    md = md.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     let html = md
         .replace(/^### (.+)$/gm, "<h2>$1</h2>")
         .replace(/^## (.+)$/gm, "<h2>$1</h2>")
@@ -75,11 +90,11 @@ function renderReport(data) {
     let html = "";
 
     // Date header
-    html += `<h1>${data.date}</h1>`;
+    html += `<h1>${esc(formatDateHeading(data.date))}</h1>`;
 
     // Summary
     if (report.summary) {
-        html += `<p class="summary">${report.summary}</p>`;
+        html += `<p class="summary">${esc(report.summary)}</p>`;
     }
 
     // Group movers by market
@@ -90,8 +105,10 @@ function renderReport(data) {
         groups[market].push(m);
     }
 
-    // Render in order: Nordic, Europe, US
-    for (const market of ["Nordic", "Europe", "US"]) {
+    // Render in order: Nordic, Europe, US, then any remaining
+    const marketOrder = ["Nordic", "Europe", "US"];
+    const remaining = Object.keys(groups).filter(m => !marketOrder.includes(m));
+    for (const market of [...marketOrder, ...remaining]) {
         const movers = groups[market];
         if (!movers || movers.length === 0) continue;
 
@@ -99,9 +116,9 @@ function renderReport(data) {
         html += `<h2>${label}</h2>`;
 
         for (const m of movers) {
-            const pct = m.change_pct;
-            const pctClass = pct >= 0 ? "pct-up" : "pct-down";
-            const pctStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
+            const pct = m.change_pct ?? 0;
+            const pctClass = pct > 0 ? "pct-up" : pct < 0 ? "pct-down" : "pct-neutral";
+            const pctStr = pct > 0 ? `+${pct}%` : `${pct}%`;
             const tag = m.confirmed
                 ? `<span class="tag tag-confirmed">Bekreftet</span>`
                 : ``;
@@ -149,7 +166,7 @@ async function fetchLatestReport() {
         const data = await res.json();
         showReport(data);
     } catch (e) {
-        reportContent.innerHTML = `<div class="error">Kunne ikke hente rapport: ${e.message}</div>`;
+        reportContent.innerHTML = `<div class="error">Kunne ikke hente rapport: ${esc(e.message)}</div>`;
     }
 }
 
@@ -161,7 +178,7 @@ async function fetchReportByDate(date) {
         const data = await res.json();
         showReport(data);
     } catch (e) {
-        reportContent.innerHTML = `<div class="error">Kunne ikke hente rapport: ${e.message}</div>`;
+        reportContent.innerHTML = `<div class="error">Kunne ikke hente rapport: ${esc(e.message)}</div>`;
     }
 }
 
@@ -178,7 +195,7 @@ async function fetchReportHistory() {
         reports.forEach((r, i) => {
             const opt = document.createElement("option");
             opt.value = r.date;
-            opt.textContent = r.date;
+            opt.textContent = formatDateShort(r.date);
             if (i === 0) opt.selected = true;
             datePicker.appendChild(opt);
         });
@@ -305,7 +322,7 @@ sparklineToggle.addEventListener("click", () => {
 // --- Service Worker ---
 
 if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("/sw.js");
+    navigator.serviceWorker.register("/sw.js").catch(e => console.error("SW registration failed:", e));
 }
 
 // --- Portfolio toggle ---
@@ -330,8 +347,8 @@ document.getElementById(`btn-${currentPortfolio}`)?.classList.add("active");
 // --- Init ---
 
 async function init() {
-    await fetchSparklines();
-    await Promise.all([fetchLatestReport(), fetchReportHistory()]);
+    const sparkPromise = fetchSparklines();
+    await Promise.all([sparkPromise, fetchLatestReport(), fetchReportHistory()]);
     initPush();
 }
 
