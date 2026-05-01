@@ -109,14 +109,18 @@ def main():
         f.write(json_str)
 
     filename = f"movers_{portfolio_id}.json"
-    subprocess.run(
-        [
-            "gh", "api", "--method", "PATCH", f"/gists/{gist_id}",
-            "-f", f"files[{filename}][content]={json_str}",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+        json.dump({"files": {filename: {"content": json_str}}}, tf)
+        tf_path = tf.name
+    try:
+        subprocess.run(
+            ["gh", "api", "--method", "PATCH", f"/gists/{gist_id}", "--input", tf_path],
+            check=True,
+            capture_output=True,
+        )
+    finally:
+        os.unlink(tf_path)
     print(f"Gist updated: https://gist.github.com/{gist_id}")
 
 

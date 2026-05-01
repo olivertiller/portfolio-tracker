@@ -41,7 +41,7 @@ Order movers by market: Nordic first, then Europe, then US."""
 
 
 def build_prompt(movers_data: dict) -> str:
-    if movers_data["movers_count"] == 0:
+    if movers_data.get("movers_count", 0) == 0 or not movers_data.get("movers"):
         return 'No movers today. Return: {"summary": "Quiet day — no stocks moved more than ±2%.", "movers": []}'
 
     movers_json = json.dumps(movers_data["movers"], indent=2)
@@ -77,11 +77,11 @@ def _call_api(client, msgs):
                 ],
                 messages=msgs,
             )
-        except anthropic.RateLimitError:
+        except (anthropic.RateLimitError, anthropic.APIConnectionError, anthropic.InternalServerError) as e:
             wait = 60 * (attempt + 1)
-            print(f"Rate limited, waiting {wait}s... (attempt {attempt + 1}/5)")
+            print(f"{type(e).__name__}, waiting {wait}s... (attempt {attempt + 1}/5)")
             time.sleep(wait)
-    raise Exception("Rate limit exceeded after 5 retries")
+    raise Exception("API call failed after 5 retries")
 
 
 def _extract_json(response) -> dict:
@@ -92,7 +92,11 @@ def _extract_json(response) -> dict:
     for part in reversed(text_parts):
         text = part.strip()
         if "```" in text:
-            text = text.split("```json")[-1].split("```")[-2] if "```json" in text else text.split("```")[1]
+            parts = text.split("```")
+            if "```json" in text:
+                text = text.split("```json")[-1].split("```")[0]
+            elif len(parts) >= 3:
+                text = parts[1]
             text = text.strip()
         start = text.find("{")
         end = text.rfind("}") + 1
@@ -118,10 +122,8 @@ def _analyze_market_batch(client, movers: list, date: str) -> dict:
 
     response = _call_api(client, messages)
     while response.stop_reason == "pause_turn":
-        messages = [
-            {"role": "user", "content": build_prompt(batch_data)},
-            {"role": "assistant", "content": response.content},
-        ]
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({"role": "user", "content": "Continue."})
         response = _call_api(client, messages)
 
     return _extract_json(response)
@@ -144,7 +146,9 @@ def generate_report(movers_data: dict) -> dict:
     if not movers:
         return {"summary": "Ingen aksjer svingte mer enn 2% i dag.", "movers": []}
 
-    for market in ["Nordic", "Europe", "US"]:
+    market_order = ["Nordic", "Europe", "US"]
+    remaining = [m for m in markets if m not in market_order]
+    for market in market_order + remaining:
         batch = markets.get(market, [])
         if not batch:
             continue
@@ -157,8 +161,7 @@ def generate_report(movers_data: dict) -> dict:
         all_movers.extend(result.get("movers", []))
 
         # Brief pause between batches to avoid rate limits
-        if market != "US":
-            time.sleep(5)
+        time.sleep(5)
 
     return {"summary": summary, "movers": all_movers}
 
@@ -186,8 +189,12 @@ def save_report_to_gist(report: dict, date: str, gist_id: str, portfolio_id: str
     except (json.JSONDecodeError, Exception) as e:
         print(f"Could not read existing reports: {e}")
 
+    if not isinstance(existing, list):
+        print(f"Warning: gist data was not a list, resetting")
+        existing = []
+
     # Remove existing report for same date (if re-running)
-    existing = [r for r in existing if r["date"] != date]
+    existing = [r for r in existing if r.get("date") != date]
 
     # Add new report
     existing.append({
@@ -197,19 +204,23 @@ def save_report_to_gist(report: dict, date: str, gist_id: str, portfolio_id: str
     })
 
     # Sort newest first, keep last 90 days
-    existing.sort(key=lambda r: r["date"], reverse=True)
+    existing.sort(key=lambda r: r.get("date", ""), reverse=True)
     existing = existing[:90]
 
-    # Write to gist via GitHub API
+    # Write to gist via GitHub API (use temp file to avoid CLI arg length limits)
     content = json.dumps(existing, ensure_ascii=False, indent=2)
-    subprocess.run(
-        [
-            "gh", "api", "--method", "PATCH", f"/gists/{gist_id}",
-            "-f", f"files[{filename}][content]={content}",
-        ],
-        check=True,
-        capture_output=True,
-    )
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tf:
+        json.dump({"files": {filename: {"content": content}}}, tf, ensure_ascii=False)
+        tf_path = tf.name
+    try:
+        subprocess.run(
+            ["gh", "api", "--method", "PATCH", f"/gists/{gist_id}", "--input", tf_path],
+            check=True,
+            capture_output=True,
+        )
+    finally:
+        os.unlink(tf_path)
     print(f"Report saved to gist ({filename}) for {date}")
 
 
@@ -232,7 +243,7 @@ def notify_app(api_url: str, api_secret: str, date: str, portfolio_name: str):
 def main():
     import argparse
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from portfolios import PORTFOLIOS
+    from server.portfolios import PORTFOLIOS
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--portfolio", default="private", choices=list(PORTFOLIOS.keys()))
@@ -251,7 +262,7 @@ def main():
 
     print(f"Generating {portfolio_name} report for {movers_data['movers_count']} movers...")
     report = generate_report(movers_data)
-    date = movers_data["movers"][0]["date"] if movers_data["movers"] else datetime.now().strftime("%Y-%m-%d")
+    date = movers_data["movers"][0]["date"] if movers_data.get("movers") else datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     print(json.dumps(report, indent=2))
 
