@@ -15,6 +15,9 @@ on:
 jobs:
   report:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -39,3 +42,18 @@ jobs:
           API_URL: ${{ secrets.API_URL }}
           API_SECRET: ${{ secrets.API_SECRET }}
         run: python scripts/generate_report.py --portfolio ${{ inputs.portfolio }}
+
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PORTFOLIO: ${{ inputs.portfolio }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create \
+            --title "Daily report failed: $PORTFOLIO ($(date -u +%Y-%m-%d))" \
+            --body "Workflow run failed for portfolio **$PORTFOLIO**.
+
+          Run: $RUN_URL
+
+          @claude please investigate the failure and open a fix PR if applicable."

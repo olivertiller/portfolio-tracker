@@ -77,7 +77,12 @@ def _call_api(client, msgs):
                 ],
                 messages=msgs,
             )
-        except (anthropic.RateLimitError, anthropic.APIConnectionError, anthropic.InternalServerError) as e:
+        except (
+            anthropic.RateLimitError,
+            anthropic.APIConnectionError,
+            anthropic.InternalServerError,
+            anthropic.OverloadedError,
+        ) as e:
             wait = 60 * (attempt + 1)
             print(f"{type(e).__name__}, waiting {wait}s... (attempt {attempt + 1}/5)")
             time.sleep(wait)
