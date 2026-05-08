@@ -9,6 +9,10 @@ Oppgaver og ideer for portfolio-tracker.
 - [ ] `get_daily_changes` filtrerer ut "stale" tickers basert på flertall — kan gi rar oppførsel når halve markedet er stengt. Vurder per-marked-gruppering.
 - [ ] CORS er åpen for alle origins (`allow_origins=["*"]`). Lås ned til kjente domener i prod.
 
+## AI-rapport / søk
+
+- [ ] Gjør AI-søket betydelig mer presist. Modellen klarer ikke å fange opp at f.eks. svake resultater fra Cloudwave drar Vertiv, nVent osv. ned. Vedlikehold en peer-liste per ticker (data center, aluminium, olje/offshore, halvleder, m.m.) i `server/portfolios.py` eller en egen fil, og inkluder den i `CLAUDE_PROMPT.md` slik at modellen i Level 3 kan søke aktivt på peers når ingen direkte nyhet finnes på selskapet selv.
+
 ## Funksjoner
 
 - [ ] Notater per ticker i frontend (lagret i `localStorage`, eller i Gist for sync).
