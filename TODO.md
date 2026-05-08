@@ -12,6 +12,7 @@ Oppgaver og ideer for portfolio-tracker.
 ## AI-rapport / søk
 
 - [ ] Gjør AI-søket betydelig mer presist. Modellen klarer ikke å fange opp at f.eks. svake resultater fra Cloudwave drar Vertiv, nVent osv. ned. Vedlikehold en peer-liste per ticker (data center, aluminium, olje/offshore, halvleder, m.m.) i `server/portfolios.py` eller en egen fil, og inkluder den i `CLAUDE_PROMPT.md` slik at modellen i Level 3 kan søke aktivt på peers når ingen direkte nyhet finnes på selskapet selv.
+- [ ] Mulig å dele opp søket til 19 ulike agenter?
 
 ## Funksjoner
 
