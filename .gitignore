@@ -5,5 +5,6 @@ __pycache__/
 .Rhistory
 *.md
 !README.md
+!TODO.md
 *.db
 node_modules/
